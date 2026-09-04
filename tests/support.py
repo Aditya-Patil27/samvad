@@ -29,12 +29,19 @@ def implemented(fn, *args: Any, **kwargs: Any) -> bool:
     disliked these arguments, which still counts as implemented. Narrowing this
     would make the probe wrong.
     """
+    import inspect
+
     try:
-        fn(*args, **kwargs)
+        result = fn(*args, **kwargs)
     except NotImplementedError:
         return False
     except Exception:  # noqa: BLE001 -- see docstring; anything else means "implemented"
         return True
+    # Probing an async stub returns a coroutine that nobody awaits. Close it
+    # explicitly or every probe emits a RuntimeWarning and the real signal
+    # drowns in noise.
+    if inspect.iscoroutine(result):
+        result.close()
     return True
 
 

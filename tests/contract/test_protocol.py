@@ -147,17 +147,30 @@ def test_budget_fields_cannot_go_negative():
 # --- spawn ------------------------------------------------------------------
 
 
-def test_child_cannot_raise_max_depth():
-    """max_depth is inherited unchanged. A child raising it is rejected."""
-    parent = _make(spawn={"parent": "agent_a", "depth": 1, "max_depth": 3})
+def test_depth_cannot_exceed_max_depth():
+    """The envelope-local half of the depth guard.
+
+    Whether a child RAISED max_depth above its parent's cannot be judged here:
+    it needs the parent, and one message does not carry it. That check belongs
+    in the receive path and lives in tests/contract/test_transport.py. What a
+    single envelope can prove is that it does not claim to sit deeper than its
+    own declared ceiling.
+    """
+    with pytest.raises(INVALID):
+        _make(
+            sender="agent_a/w1/w2/w3",
+            spawn={"parent": "agent_a/w1/w2", "depth": 3, "max_depth": 2},
+        )
+
+
+def test_spawn_parent_must_follow_the_sender_path():
+    """parent is sender minus its last segment. A mismatch is a routing bug
+    waiting: the address and the spawn block disagree about where the agent
+    sits, and whichever the receiver trusts, the other is wrong."""
     with pytest.raises(INVALID):
         _make(
             sender="agent_a/worker_2",
-            spawn={
-                "parent": parent.spawn.parent,
-                "depth": 1,
-                "max_depth": parent.spawn.max_depth + 1,
-            },
+            spawn={"parent": "agent_b", "depth": 1, "max_depth": 3},
         )
 
 
@@ -200,7 +213,10 @@ def test_performative_accepts_only_the_eight_speech_acts():
     from samvad.protocol import Performative
 
     for act in Performative:
-        assert _make(performative=act.value).performative == act
+        # spawn_refused must carry one of the four reasons peers know how to
+        # read; every other performative is happy with the default payload.
+        extra = {"payload": {"reason": "max_depth"}} if act is Performative.SPAWN_REFUSED else {}
+        assert _make(performative=act.value, **extra).performative == act
     with pytest.raises(INVALID):
         _make(performative="please_do_this")
 
