@@ -104,6 +104,21 @@ def envelope(**overrides: Any) -> dict[str, Any]:
         "sig": None,
     }
     msg.update(overrides)
+
+    # Keep spawn consistent with sender unless a test overrides it on purpose.
+    # The schema requires spawn.depth == depth(sender) and spawn.parent ==
+    # sender minus its last segment, so a test that changes only `sender` would
+    # otherwise build an envelope the schema correctly rejects -- and fail for
+    # a reason that has nothing to do with what it was testing. Tests that want
+    # a mismatched spawn still get one: pass `spawn` explicitly.
+    if "spawn" not in overrides:
+        sender = msg["sender"]
+        parent = sender.rsplit("/", 1)[0] if "/" in sender else sender
+        msg["spawn"] = {
+            "parent": parent,
+            "depth": sender.count("/"),
+            "max_depth": max(3, sender.count("/")),
+        }
     return msg
 
 

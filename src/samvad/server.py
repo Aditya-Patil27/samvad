@@ -20,38 +20,16 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import ValidationError
 
 from samvad import security
 from samvad.clock import LamportClock
 from samvad.protocol import PROTOCOL_VERSION, Message
+from samvad.store.blobs import BlobStore
+from samvad.store.log import MessageLog
 
 DEFAULT_PEERS = ("agent_a", "agent_b", "agent_c", "agent_d")
-
-
-class SeenLog:
-    """In-memory idempotency store.
-
-    THE SEAM: P3 stores (MessageLog.seen), P1 decides (returns the cached
-    response instead of re-dispatching). This is a stand-in for P3's half so
-    the decision half can be built and proved now -- swap it for MessageLog and
-    delete this class, the interface is deliberately the same two methods.
-    """
-
-    def __init__(self) -> None:
-        self._responses: dict[str, dict[str, Any]] = {}
-        self._root_tasks: dict[str, str] = {}
-
-    def seen(self, message_id: str) -> dict[str, Any] | None:
-        return self._responses.get(message_id)
-
-    def record(self, msg: Message, response: dict[str, Any]) -> None:
-        self._responses[msg.message_id] = response
-        self._root_tasks.setdefault(msg.conversation_id, msg.root_task)
-
-    def root_task_for(self, conversation_id: str) -> str | None:
-        return self._root_tasks.get(conversation_id)
 
 
 def make_app(
@@ -60,7 +38,8 @@ def make_app(
     agent: str | None = None,
     peers: tuple[str, ...] = DEFAULT_PEERS,
     secret: str | None = None,
-    log: SeenLog | None = None,
+    log: MessageLog | None = None,
+    blobs: BlobStore | None = None,
 ) -> FastAPI:
     """Build the FastAPI app. `inbox` is called in the background, never awaited
     inside the request handler."""
@@ -69,7 +48,8 @@ def make_app(
     app.state.secret = secret if secret is not None else os.environ.get("SAMVAD_SECRET", "")
     app.state.peers = tuple(peers)
     app.state.clock = LamportClock()
-    app.state.log = log or SeenLog()
+    app.state.log = log or MessageLog()
+    app.state.blobs = blobs or BlobStore()
     app.state.children = 0
 
     @app.post("/message")
@@ -93,9 +73,10 @@ def make_app(
         if not security.verify(msg, app.state.secret):
             return JSONResponse({"error": "signature"}, status_code=401)
 
-        # Idempotency BEFORE dispatch. Delivery is at-least-once and retries are
-        # expected; a duplicate reaching the handler means a duplicate LLM call,
-        # a duplicate charge, and two divergent answers to one question.
+        # THE SEAM: P3 stores (MessageLog.seen), P1 decides. Checked BEFORE
+        # dispatch -- delivery is at-least-once and retries are expected, and a
+        # duplicate reaching the handler means a duplicate LLM call, a duplicate
+        # charge, and two divergent answers to one question.
         cached = app.state.log.seen(msg.message_id)
         if cached is not None:
             return JSONResponse(cached, status_code=202)
@@ -111,7 +92,8 @@ def make_app(
 
         app.state.clock.observe(msg.lamport)
         response = {"accepted": msg.message_id}
-        app.state.log.record(msg, response)
+        app.state.log.append(msg, response)
+        app.state.log.record_cost(msg)
 
         # THE INVARIANT. Scheduled, never awaited: the handler may sit on an LLM
         # for a minute, and this must return in milliseconds.
@@ -124,10 +106,34 @@ def make_app(
             "agent": app.state.agent,
             "lamport": app.state.clock.value,
             "children": app.state.children,
+            "budget_usd": app.state.log.total_usd(),
         }
 
     @app.get("/peers")
     async def peer_table() -> dict[str, Any]:
         return {"peers": list(app.state.peers), "agent": app.state.agent}
+
+    @app.get("/blob/{digest}")
+    async def get_blob(digest: str) -> Response:
+        """Artifact bytes, fetched only if the receiver decides it needs them.
+
+        Contributed by P3, mounted here. This route is the other half of
+        "artifacts travel as refs": the ref and its token count ride on the
+        message, and the bytes cross the wire only when someone chooses to pay
+        for them. An artifact nobody fetches never enters a second context
+        window, which is the whole dedup mechanism.
+        """
+        ref = digest if digest.startswith("sha256:") else f"sha256:{digest}"
+        data = app.state.blobs.get(ref)
+        if data is None:
+            return JSONResponse({"error": "unknown blob", "ref": ref}, status_code=404)
+        return Response(content=data, media_type="application/octet-stream")
+
+    @app.get("/events")
+    async def events() -> StreamingResponse:
+        """SSE stream for the dashboard. Contributed by P4, mounted here."""
+        from samvad.events import event_stream
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     return app
