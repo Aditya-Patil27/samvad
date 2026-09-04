@@ -160,7 +160,12 @@ async def test_unknown_sender_returns_403(secret):
 
     async with await _client(app) as client:
         response = await client.post(
-            "/message", json=_signed(secret, sender="agent_z").model_dump(mode="json")
+            "/message",
+            json=_signed(
+                secret,
+                sender="agent_z",
+                spawn={"parent": "agent_z", "depth": 0, "max_depth": 3},
+            ).model_dump(mode="json"),
         )
 
     assert response.status_code == 403

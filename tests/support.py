@@ -29,12 +29,19 @@ def implemented(fn, *args: Any, **kwargs: Any) -> bool:
     disliked these arguments, which still counts as implemented. Narrowing this
     would make the probe wrong.
     """
+    import inspect
+
     try:
-        fn(*args, **kwargs)
+        result = fn(*args, **kwargs)
     except NotImplementedError:
         return False
     except Exception:  # noqa: BLE001 -- see docstring; anything else means "implemented"
         return True
+    # Probing an async stub returns a coroutine that nobody awaits. Close it
+    # explicitly or every probe emits a RuntimeWarning and the real signal
+    # drowns in noise.
+    if inspect.iscoroutine(result):
+        result.close()
     return True
 
 
@@ -97,6 +104,21 @@ def envelope(**overrides: Any) -> dict[str, Any]:
         "sig": None,
     }
     msg.update(overrides)
+
+    # Keep spawn consistent with sender unless a test overrides it on purpose.
+    # The schema requires spawn.depth == depth(sender) and spawn.parent ==
+    # sender minus its last segment, so a test that changes only `sender` would
+    # otherwise build an envelope the schema correctly rejects -- and fail for
+    # a reason that has nothing to do with what it was testing. Tests that want
+    # a mismatched spawn still get one: pass `spawn` explicitly.
+    if "spawn" not in overrides:
+        sender = msg["sender"]
+        parent = sender.rsplit("/", 1)[0] if "/" in sender else sender
+        msg["spawn"] = {
+            "parent": parent,
+            "depth": sender.count("/"),
+            "max_depth": max(3, sender.count("/")),
+        }
     return msg
 
 

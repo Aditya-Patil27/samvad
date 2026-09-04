@@ -3,321 +3,588 @@
      Opening this file directly falls back to synthetic data, so it renders
      before any node exists.
 
-     Design rationale in Samvad.md -> Design Decisions (Frontend).
-     Vertical axis is the LAMPORT CLOCK, not wall time. Four fixed columns are
-     four physical laptops. Messages are lines crossing between them. The view
-     is a sequence diagram because the data is a sequence diagram.
+     THIS IS AN AUDIT CONSOLE, not a traffic diagram. The question it answers
+     is not "what moved" but "what did the AI do, on what evidence, at what
+     cost, and can I check it". Roster -> activity log -> record detail, the
+     shape a CRM audit trail uses, because that is the same question.
+
+     The column that matters is EVIDENCE. Every claim an agent makes carries an
+     evidence_type, and model_prior means nothing ran -- the model just believes
+     it. Surfacing that per row is the whole point: an operator can see which
+     assertions are grounded in a test or a file and which are confabulated,
+     without reading a log.
 
      Expected SSE frames on /events:
        {"type":"node","agent":"agent_b","model":"claude-opus-5","up":true,
         "context":{"used":14200,"limit":200000},"children":2,"budget_usd":0.42}
        {"type":"message","lamport":14,"sender":"agent_a","receiver":"agent_b",
         "performative":"task_request","task_status":"in_progress",
-        "cost":{"usd":0.0031}}
+        "cost":{"usd":0.0031},"claims":[...],"artifacts":[...]}
+     Any field beyond sender/receiver/performative/lamport is optional; the
+     table degrades to what it was given.
 -->
 <!doctype html>
 <meta charset="utf-8">
-<title>Samvad</title>
+<title>Samvad Audit Console</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  /* Data-ink ratio: every pixel encodes something or it is deleted.
-     No radius, no shadow, no gradient. Rules separate; boxes decorate. */
   :root {
-    --ground: #faf9f7;
-    --rule:   #d4d0c8;
-    --rule-2: #ebe8e3;
-    --ink:    #1a1a18;
-    --muted:  #6b665e;
-    --a: #1a5c8f;  --b: #b8541a;  --c: #2d6b4a;  --d: #7a3b6b;
-    --gutter: 68px;
+    --bg:        #f4f5f7;
+    --panel:     #ffffff;
+    --sunk:      #eceef1;
+    --line:      #dcdfe4;
+    --ink:       #16191d;
+    --ink-2:     #454b54;
+    --muted:     #6d747e;
+    --accent:    #1f5fbf;
+    --accent-bg: #e8f0fc;
+
+    --ok:      #0d7a53;   --ok-bg:   #e2f3ec;
+    --warn:    #9a6205;   --warn-bg: #fbf0dc;
+    --bad:     #b02418;   --bad-bg:  #fbeae8;
+    --idle:    #6d747e;   --idle-bg: #eceef1;
+
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:        #14171b;
+      --panel:     #1b1f24;
+      --sunk:      #22272d;
+      --line:      #2f353c;
+      --ink:       #e7eaee;
+      --ink-2:     #b9c0c9;
+      --muted:     #868e99;
+      --accent:    #6aa5f0;
+      --accent-bg: #17263a;
+
+      --ok:      #4cc38f;  --ok-bg:   #102b21;
+      --warn:    #e0a33e;  --warn-bg: #2e2411;
+      --bad:     #f0796c;  --bad-bg:  #331916;
+      --idle:    #868e99;  --idle-bg: #22272d;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
-    background: var(--ground); color: var(--ink);
-    font: 13px/1.45 ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-    font-variant-numeric: tabular-nums;
+    background: var(--bg); color: var(--ink);
+    font: 13px/1.45 var(--sans);
     display: flex; flex-direction: column; overflow: hidden;
   }
-  .hair { border-bottom: 1px solid var(--rule); }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-  /* ---- header ------------------------------------------------------ */
+  /* ---- top bar ---- */
   header {
-    display: flex; align-items: baseline; gap: 22px;
-    padding: 10px 14px; border-bottom: 1px solid var(--ink);
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 16px; height: 48px;
+    background: var(--panel); border-bottom: 1px solid var(--line); flex: none;
   }
-  .brand { font-weight: 700; letter-spacing: .14em; }
-  .meta { color: var(--muted); }
-  .spend { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
-  .spend .n { font-size: 34px; font-weight: 700; letter-spacing: -.02em; }
-  .spend .cap { color: var(--muted); }
-  .mode {
-    border: 1px solid var(--rule); padding: 1px 6px;
-    color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-size: 11px;
+  .brand { font-weight: 700; font-size: 14px; letter-spacing: .02em; }
+  .brand small { font-weight: 500; color: var(--muted); letter-spacing: .06em;
+                 text-transform: uppercase; font-size: 10.5px; margin-left: 8px; }
+  .kpis { margin-left: auto; display: flex; gap: 26px; align-items: center; }
+  .kpi { text-align: right; }
+  .kpi .v { font: 600 16px/1.1 var(--mono); font-variant-numeric: tabular-nums; display: block; }
+  .kpi .k { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+  .badge {
+    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    padding: 4px 8px; border-radius: 3px; background: var(--idle-bg); color: var(--idle);
   }
+  .badge.live { background: var(--ok-bg); color: var(--ok); }
 
-  /* ---- node strip -------------------------------------------------- */
-  .nodes { display: grid; grid-template-columns: var(--gutter) repeat(4, 1fr); }
-  .nodes .pad { border-bottom: 1px solid var(--rule); }
-  .node {
-    padding: 8px 12px 9px;
-    border-left: 1px solid var(--rule-2); border-bottom: 1px solid var(--rule);
+  /* ---- layout ---- */
+  .shell { flex: 1; display: grid; grid-template-columns: 232px 1fr; min-height: 0; }
+
+  /* ---- roster ---- */
+  aside {
+    background: var(--panel); border-right: 1px solid var(--line);
+    overflow-y: auto; min-height: 0;
   }
-  .node .id { font-weight: 700; letter-spacing: .06em; }
-  .node .model, .node .stat { color: var(--muted); }
-  .node .stat { display: flex; justify-content: space-between; }
-  .bar { height: 5px; border: 1px solid var(--rule); margin: 6px 0 5px; }
-  .bar i { display: block; height: 100%; background: currentColor; }
-  .node.down { color: var(--muted); }
-  .node.down .id::after { content: "  \2715  DOWN"; letter-spacing: .08em; }
-
-  /* ---- trace ------------------------------------------------------- */
-  .head {
-    display: grid; grid-template-columns: var(--gutter) repeat(4, 1fr);
-    color: var(--muted); font-size: 11px; letter-spacing: .1em;
-    padding: 5px 0; border-bottom: 1px solid var(--ink);
+  .aside-h {
+    font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+    padding: 12px 14px 8px;
   }
-  .head span { padding-left: 12px; }
-  .head span:first-child { text-align: right; padding: 0 10px 0 0; }
-
-  .scroll { flex: 1; overflow-y: auto; }
-  #trace { position: relative; min-height: 100%; }
-  .rails { position: absolute; inset: 0; pointer-events: none; }
-  .rails i {
-    position: absolute; top: 0; bottom: 0; width: 1px; background: var(--rule-2);
+  .agent {
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    cursor: pointer; display: grid; gap: 5px;
   }
+  .agent:hover { background: var(--sunk); }
+  .agent.sel { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+  .agent-top { display: flex; align-items: center; gap: 7px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+  .agent.down .dot { background: var(--bad); }
+  .agent.down .name { color: var(--muted); text-decoration: line-through; }
+  .name { font-weight: 600; font-family: var(--mono); }
+  .role { margin-left: auto; font-size: 10.5px; color: var(--muted); text-transform: uppercase;
+          letter-spacing: .05em; }
+  .agent-meta { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+  .track { height: 3px; background: var(--sunk); border-radius: 2px; overflow: hidden; }
+  .track i { display: block; height: 100%; background: var(--accent); }
+  .track i.hot { background: var(--warn); }
+  .track i.full { background: var(--bad); }
 
-  .row { display: grid; grid-template-columns: var(--gutter) 1fr; min-height: 21px; }
-  .row:hover { background: #f2efe9; }
-  .tick { text-align: right; padding-right: 10px; color: var(--muted); }
-  .lanes { position: relative; height: 21px; }
-
-  .msg { position: absolute; top: 9px; height: 1px; background: currentColor; }
-  .msg::after {                      /* arrowhead, direction set per message */
-    content: ""; position: absolute; top: -3px; width: 0; height: 0;
-    border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
+  /* ---- main ---- */
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .filters {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    padding: 9px 14px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none;
   }
-  .msg.fwd::after  { right: -1px; border-left: 6px solid currentColor; }
-  .msg.back::after { left: -1px;  border-right: 6px solid currentColor; }
-  .msg.dashed { background: repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px); }
-
-  .tag {
-    position: absolute; top: -8px; padding: 0 5px; background: var(--ground);
-    white-space: nowrap; font-size: 11px;
+  select, input[type=search] {
+    font: 12px var(--sans); color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px;
   }
-  .tag b { font-weight: 700; }
-  .tag .usd { color: var(--muted); }
+  input[type=search] { flex: 1; min-width: 120px; max-width: 280px; }
+  select:focus-visible, input:focus-visible, .agent:focus-visible, tbody tr:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: -2px;
+  }
+  .count { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+  .btn {
+    font: 12px var(--sans); color: var(--ink-2); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 4px; padding: 5px 9px; cursor: pointer;
+  }
+  .btn:hover { background: var(--sunk); }
 
-  .self { position: absolute; top: 3px; font-size: 11px; white-space: nowrap; }
-  .self .kid { color: var(--muted); }
+  .tablewrap { flex: 1; overflow: auto; min-height: 0; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    position: sticky; top: 0; z-index: 1; text-align: left;
+    font: 600 10px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase;
+    color: var(--muted); background: var(--sunk);
+    padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  tbody td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--sunk); }
+  tbody tr.sel { background: var(--accent-bg); }
+  tbody tr.new td { animation: flash 1.1s ease-out; }
+  @keyframes flash { from { background: var(--accent-bg); } }
+  td.num { font-family: var(--mono); color: var(--muted); white-space: nowrap; }
+  td.who { font-family: var(--mono); white-space: nowrap; }
+  td.who .arrow { color: var(--muted); margin: 0 4px; }
+  .pill {
+    display: inline-block; font: 600 10px/1.5 var(--mono); letter-spacing: .04em;
+    padding: 1px 6px; border-radius: 3px; white-space: nowrap;
+  }
+  .pill.ok   { background: var(--ok-bg);   color: var(--ok); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.bad  { background: var(--bad-bg);  color: var(--bad); }
+  .pill.idle { background: var(--idle-bg); color: var(--idle); }
+  .ev { display: flex; gap: 3px; flex-wrap: wrap; }
+  .ev .none { color: var(--muted); }
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
 
-  .row.flash .lanes { animation: f .12s steps(1); }
-  @keyframes f { from { background: #f0e6cf; } }
-
-  .fail { font-weight: 700; letter-spacing: .06em; }
-  .rule-row { grid-column: 1 / -1; border-top: 1px solid var(--rule); }
-
+  /* ---- detail ---- */
+  .detail {
+    flex: none; max-height: 45%; overflow-y: auto;
+    background: var(--panel); border-top: 2px solid var(--accent);
+  }
+  .detail[hidden] { display: none; }
+  .d-head {
+    display: flex; align-items: baseline; gap: 12px; padding: 10px 14px;
+    border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel);
+  }
+  .d-head b { font-size: 13px; }
+  .d-head .id { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .d-head .close { margin-left: auto; }
+  .d-body { padding: 12px 14px; display: grid; gap: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 18px; }
+  .f .k { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .f .v { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+  .sec-h {
+    font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted);
+    border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-bottom: 7px;
+  }
+  .claim { display: grid; gap: 2px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .claim:last-child { border-bottom: 0; }
+  .claim .c { font-weight: 600; }
+  .claim .e { font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+  .rt { background: var(--sunk); border-left: 3px solid var(--accent); padding: 8px 10px;
+        border-radius: 0 3px 3px 0; }
+  pre { font: 11.5px/1.5 var(--mono); background: var(--sunk); padding: 9px 11px;
+        border-radius: 4px; overflow-x: auto; }
   footer {
-    display: flex; gap: 20px; padding: 6px 14px;
-    border-top: 1px solid var(--ink); color: var(--muted); font-size: 11px;
+    flex: none; display: flex; gap: 18px; padding: 6px 14px;
+    background: var(--panel); border-top: 1px solid var(--line);
+    font-size: 11px; color: var(--muted);
   }
-  footer b { color: var(--ink); font-weight: 700; }
+  @media (max-width: 720px) {
+    .shell { grid-template-columns: 1fr; }
+    aside { display: none; }
+  }
 </style>
 
 <header>
-  <span class="brand">SAMVAD</span>
-  <span class="meta">lamport <b id="lam">0</b></span>
-  <span class="meta"><b id="nmsg">0</b> messages</span>
-  <span class="mode" id="mode">connecting</span>
-  <span class="spend"><span class="cap">spend</span><span class="n" id="usd">$0.0000</span></span>
+  <span class="brand">SAMVAD<small>audit console</small></span>
+  <span class="badge" id="mode">connecting</span>
+  <div class="kpis">
+    <div class="kpi"><span class="v" id="k-grounded">—</span><span class="k">grounded</span></div>
+    <div class="kpi"><span class="v" id="k-msgs">0</span><span class="k">actions</span></div>
+    <div class="kpi"><span class="v" id="k-lam">0</span><span class="k">lamport</span></div>
+    <div class="kpi"><span class="v" id="k-usd">$0.0000</span><span class="k">spend</span></div>
+  </div>
 </header>
 
-<div class="nodes" id="nodes"><div class="pad"></div></div>
+<div class="shell">
+  <aside>
+    <div class="aside-h">Agents</div>
+    <div id="roster"></div>
+  </aside>
 
-<div class="head">
-  <span>LAMPORT</span><span>AGENT_A</span><span>AGENT_B</span><span>AGENT_C</span><span>AGENT_D</span>
+  <main>
+    <div class="filters">
+      <select id="f-agent"><option value="">All agents</option></select>
+      <select id="f-act"><option value="">All actions</option></select>
+      <select id="f-ev">
+        <option value="">Any evidence</option>
+        <option value="grounded">Grounded only</option>
+        <option value="model_prior">Contains model_prior</option>
+        <option value="none">No claims</option>
+      </select>
+      <input type="search" id="f-q" placeholder="Search task, claim, id…">
+      <button class="btn" id="f-clear">Clear</button>
+      <span class="count" id="count"></span>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>Lamport</th><th>Agent → Target</th><th>Action</th>
+          <th>Status</th><th>Evidence</th><th>Task</th><th style="text-align:right">Cost</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="empty" hidden>No actions match these filters.</div>
+    </div>
+
+    <section class="detail" id="detail" hidden aria-live="polite">
+      <div class="d-head">
+        <b id="d-title">—</b><span class="id" id="d-id"></span>
+        <button class="btn close" id="d-close">Close</button>
+      </div>
+      <div class="d-body" id="d-body"></div>
+    </section>
+
+    <footer>
+      <span>ordered by <b>lamport clock</b>, not wall time</span>
+      <span id="hint"></span>
+    </footer>
+  </main>
 </div>
-
-<div class="scroll" id="scroll">
-  <div id="trace"><div class="rails" id="rails"></div></div>
-</div>
-
-<footer>
-  <span>ordered by <b>lamport clock</b>, not wall time</span>
-  <span>4 devices &middot; 4 models</span>
-  <span id="hint"></span>
-</footer>
 
 <script>
 "use strict";
 
 const PEERS = ["agent_a", "agent_b", "agent_c", "agent_d"];
-const HUE = { agent_a: "var(--a)", agent_b: "var(--b)", agent_c: "var(--c)", agent_d: "var(--d)" };
+const GROUNDED = new Set(["test_output", "file_content"]);
 const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
 const state = {
-  usd: 0, msgs: 0, lamport: 0,
+  rows: [], usd: 0, lamport: 0, claims: 0, grounded: 0, sel: null,
   nodes: Object.fromEntries(PEERS.map(p => [p, {
-    model: "—", up: true, used: 0, limit: 200000, children: 0, budget: 0
-  }]))
+    model: "—", role: "", up: true, used: 0, limit: 200000, children: 0, budget: 0, acts: 0
+  }])),
+  filter: { agent: "", act: "", ev: "", q: "" }
 };
 
-/* ---- node strip ---------------------------------------------------- */
-const strip = $("nodes");
-for (const p of PEERS) {
-  const el = document.createElement("div");
-  el.className = "node"; el.id = "n-" + p; el.style.color = HUE[p];
-  strip.append(el);
+const peerOf = a => String(a || "").split("/")[0];
+
+/* ---- evidence: the column this console exists for --------------------- */
+function evidence(m) {
+  const claims = m.claims || [];
+  if (!claims.length) return { n: 0, grounded: 0, prior: 0, other: 0 };
+  let g = 0, p = 0, o = 0;
+  for (const c of claims) {
+    if (GROUNDED.has(c.evidence_type)) g++;
+    else if (c.evidence_type === "model_prior") p++;
+    else o++;
+  }
+  return { n: claims.length, grounded: g, prior: p, other: o };
 }
 
-function drawNodes() {
-  for (const p of PEERS) {
-    const n = state.nodes[p], el = $("n-" + p);
+const STATUS_CLASS = {
+  complete: "ok", in_progress: "idle", pending: "idle",
+  needs_revision: "warn", uncertain: "warn", abandoned: "bad"
+};
+const ACTION_CLASS = {
+  spawn_refused: "bad", budget_exhausted: "bad", uncertain: "warn",
+  task_result: "ok", child_result: "ok"
+};
+
+/* ---- roster ----------------------------------------------------------- */
+function drawRoster() {
+  $("roster").innerHTML = PEERS.map(p => {
+    const n = state.nodes[p];
     const pct = n.limit ? Math.min(100, n.used / n.limit * 100) : 0;
-    el.classList.toggle("down", !n.up);
-    el.innerHTML =
-      `<div class="id">${p.toUpperCase()}</div>` +
-      `<div class="model">${n.model}</div>` +
-      `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>` +
-      `<div class="stat"><span>ctx ${(n.used / 1000).toFixed(1)}k</span>` +
-      `<span>${n.children} child${n.children === 1 ? "" : "ren"}</span></div>` +
-      `<div class="stat"><span>budget</span><span>$${n.budget.toFixed(3)}</span></div>`;
+    const cls = pct > 90 ? "full" : pct > 70 ? "hot" : "";
+    return `<div class="agent ${n.up ? "" : "down"} ${state.filter.agent === p ? "sel" : ""}"
+                 data-agent="${p}" tabindex="0" role="button">
+      <div class="agent-top"><span class="dot"></span><span class="name">${p}</span>
+        <span class="role">${esc(n.role)}</span></div>
+      <div class="agent-meta"><span>${esc(n.model)}</span><span>${n.acts} acts</span></div>
+      <div class="track"><i class="${cls}" style="width:${pct.toFixed(1)}%"></i></div>
+      <div class="agent-meta"><span>ctx ${(n.used / 1000).toFixed(1)}k</span>
+        <span>$${n.budget.toFixed(3)}</span></div>
+    </div>`;
+  }).join("");
+}
+
+/* ---- filters ---------------------------------------------------------- */
+function matches(r) {
+  const f = state.filter;
+  if (f.agent && peerOf(r.sender) !== f.agent && peerOf(r.receiver) !== f.agent) return false;
+  if (f.act && r.performative !== f.act) return false;
+  if (f.ev === "grounded"     && !(r.ev.n && r.ev.prior === 0)) return false;
+  if (f.ev === "model_prior"  && !r.ev.prior) return false;
+  if (f.ev === "none"         && r.ev.n) return false;
+  if (f.q) {
+    const hay = [r.root_task, r.message_id, r.conversation_id, r.performative,
+      ...(r.claims || []).map(c => c.claim + " " + c.evidence)].join(" ").toLowerCase();
+    if (!hay.includes(f.q.toLowerCase())) return false;
   }
+  return true;
 }
 
-/* ---- lane geometry -------------------------------------------------- */
-const centre = i => (i + 0.5) / 4 * 100;          // % across the lane strip
-$("rails").innerHTML = PEERS.map(
-  (_, i) => `<i style="left:calc(var(--gutter) + (100% - var(--gutter)) * ${centre(i) / 100})"></i>`
-).join("");
+function drawRows(newest) {
+  const shown = state.rows.filter(matches);
+  $("count").textContent = `${shown.length} of ${state.rows.length} actions`;
+  $("empty").hidden = shown.length > 0;
 
-const trace = $("scroll"), body = $("trace");
-let lastTick = null;
-
-function row(lamport) {
-  const r = document.createElement("div");
-  r.className = "row flash";
-  const show = lamport !== lastTick;
-  lastTick = lamport;
-  r.innerHTML = `<div class="tick">${show ? lamport : ""}</div><div class="lanes"></div>`;
-  body.append(r);
-  const atEnd = trace.scrollHeight - trace.scrollTop - trace.clientHeight < 80;
-  if (atEnd) trace.scrollTop = trace.scrollHeight;
-  return r.querySelector(".lanes");
+  $("rows").innerHTML = shown.map(r => {
+    const ev = r.ev;
+    const evHtml = ev.n === 0
+      ? `<span class="none">—</span>`
+      : `${ev.grounded ? `<span class="pill ok">${ev.grounded} grounded</span>` : ""}
+         ${ev.prior ? `<span class="pill warn">${ev.prior} prior</span>` : ""}
+         ${ev.other ? `<span class="pill idle">${ev.other} peer</span>` : ""}`;
+    return `<tr data-i="${r.i}" tabindex="0" class="${r.i === state.sel ? "sel" : ""} ${r.i === newest ? "new" : ""}">
+      <td class="num">${r.lamport}</td>
+      <td class="who">${esc(r.sender)}<span class="arrow">→</span>${esc(r.receiver)}</td>
+      <td><span class="pill ${ACTION_CLASS[r.performative] || "idle"}">${esc(r.performative)}</span></td>
+      <td>${r.task_status ? `<span class="pill ${STATUS_CLASS[r.task_status] || "idle"}">${esc(r.task_status)}</span>` : `<span class="num">—</span>`}</td>
+      <td><div class="ev">${evHtml}</div></td>
+      <td>${esc((r.root_task || "").slice(0, 46))}${(r.root_task || "").length > 46 ? "…" : ""}</td>
+      <td class="num" style="text-align:right">${r.cost?.usd ? "$" + r.cost.usd.toFixed(4) : "—"}</td>
+    </tr>`;
+  }).join("");
 }
 
-/* ---- events --------------------------------------------------------- */
+/* ---- detail ----------------------------------------------------------- */
+function field(k, v) { return `<div class="f"><div class="k">${k}</div><div class="v">${esc(v)}</div></div>`; }
+
+function openDetail(i) {
+  const r = state.rows.find(x => x.i === i);
+  if (!r) return;
+  state.sel = i;
+  $("d-title").textContent = `${r.sender} → ${r.receiver} · ${r.performative}`;
+  $("d-id").textContent = r.message_id || `lamport ${r.lamport}`;
+
+  const parts = [];
+  if (r.root_task) parts.push(`<div class="rt"><div class="k" style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Root task — immutable for the conversation</div>${esc(r.root_task)}</div>`);
+
+  parts.push(`<div class="grid">
+    ${field("Lamport", r.lamport)}
+    ${field("Turn", r.turn ?? "—")}
+    ${field("Conversation", r.conversation_id || "—")}
+    ${field("Status", r.task_status || "—")}
+    ${field("Timestamp", r.timestamp || "—")}
+    ${field("Reply to", r.reply_to || "—")}
+    ${r.spawn ? field("Depth", `${r.spawn.depth} / max ${r.spawn.max_depth}`) : ""}
+    ${r.budget ? field("Budget left", `$${Number(r.budget.usd_remaining).toFixed(4)} · ${r.budget.turns_remaining} turns`) : ""}
+    ${r.context ? field("Context", `${(r.context.used / 1000).toFixed(1)}k / ${(r.context.limit / 1000).toFixed(0)}k`) : ""}
+    ${r.cost ? field("Cost", `$${Number(r.cost.usd).toFixed(4)} · ${r.cost.model || ""}`) : ""}
+    ${field("Signature", r.sig ? r.sig.slice(0, 24) + "…" : "unsigned")}
+  </div>`);
+
+  const claims = r.claims || [];
+  if (claims.length) {
+    parts.push(`<div><div class="sec-h">Claims — ${r.ev.grounded} grounded, ${r.ev.prior} model_prior</div>` +
+      claims.map(c => {
+        const g = GROUNDED.has(c.evidence_type);
+        const cls = g ? "ok" : c.evidence_type === "model_prior" ? "warn" : "idle";
+        return `<div class="claim"><div class="c">${esc(c.claim)}</div>
+          <div class="e">${esc(c.evidence)}</div>
+          <div><span class="pill ${cls}">${esc(c.evidence_type)}</span>
+          ${c.evidence_type === "model_prior" ? `<span class="e"> nothing ran — not grounded</span>` : ""}</div></div>`;
+      }).join("") + `</div>`);
+  }
+
+  const arts = r.artifacts || [];
+  if (arts.length) {
+    parts.push(`<div><div class="sec-h">Artifacts — travel as refs, never inline bytes</div>` +
+      arts.map(a => `<div class="claim"><div class="c">${esc(a.summary)}</div>
+        <div class="e">${esc(a.ref)}</div>
+        <div><span class="pill idle">${esc(a.kind)}</span> <span class="e">${a.tokens} tokens to hydrate</span></div>
+      </div>`).join("") + `</div>`);
+  }
+
+  if (r.payload && Object.keys(r.payload).length)
+    parts.push(`<div><div class="sec-h">Payload</div><pre>${esc(JSON.stringify(r.payload, null, 2))}</pre></div>`);
+
+  $("d-body").innerHTML = parts.join("");
+  $("detail").hidden = false;
+  drawRows();
+}
+
+/* ---- ingest ----------------------------------------------------------- */
 function onMessage(m) {
-  state.msgs++; state.lamport = Math.max(state.lamport, m.lamport);
+  const r = { ...m, i: state.rows.length, ev: evidence(m) };
+  state.rows.push(r);
+  state.lamport = Math.max(state.lamport, m.lamport || 0);
   state.usd += m.cost?.usd || 0;
-  $("lam").textContent = state.lamport;
-  $("nmsg").textContent = state.msgs;
-  $("usd").textContent = "$" + state.usd.toFixed(4);
+  state.claims += r.ev.n;
+  state.grounded += r.ev.grounded;
 
-  const from = PEERS.indexOf(peerOf(m.sender)), to = PEERS.indexOf(peerOf(m.receiver));
-  if (from < 0) return;
-  const lanes = row(m.lamport);
-  const label = `<b>${m.performative}</b>` +
-    (m.cost?.usd ? ` <span class="usd">$${m.cost.usd.toFixed(4)}</span>` : "");
+  const p = peerOf(m.sender);
+  if (state.nodes[p]) state.nodes[p].acts++;
 
-  if (from === to || to < 0) {                       // stayed on one device
-    const s = document.createElement("div");
-    s.className = "self";
-    s.style.left = centre(from) + "%";
-    s.style.color = HUE[PEERS[from]];
-    s.innerHTML = (m.child ? `<span class="kid">├─ ${m.child}</span> ` : "") + label;
-    lanes.append(s);
-  } else {                                           // crossed the network
-    const lo = Math.min(from, to), hi = Math.max(from, to);
-    const line = document.createElement("div");
-    line.className = "msg " + (to > from ? "fwd" : "back") + (m.dashed ? " dashed" : "");
-    line.style.left = centre(lo) + "%";
-    line.style.width = (centre(hi) - centre(lo)) + "%";
-    line.style.color = HUE[PEERS[from]];
-    line.innerHTML = `<span class="tag" style="left:8px">${label}</span>`;
-    lanes.append(line);
+  $("k-lam").textContent = state.lamport;
+  $("k-msgs").textContent = state.rows.length;
+  $("k-usd").textContent = "$" + state.usd.toFixed(4);
+  $("k-grounded").textContent = state.claims ? Math.round(state.grounded / state.claims * 100) + "%" : "—";
+
+  const opts = new Set(state.rows.map(x => x.performative));
+  const sel = $("f-act");
+  if (sel.options.length - 1 !== opts.size) {
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">All actions</option>` +
+      [...opts].sort().map(o => `<option value="${o}">${o}</option>`).join("");
+    sel.value = cur;
   }
-  if (m.note) {
-    const n = document.createElement("div");
-    n.className = "self fail";
-    n.style.left = centre(to < 0 ? from : to) + "%";
-    n.style.color = HUE[PEERS[from]];
-    n.textContent = m.note;
-    lanes.append(n);
-  }
+  drawRows(r.i);
+  drawRoster();
 }
-
-const peerOf = addr => (addr || "").split("/")[0];
 
 function onNode(n) {
   const s = state.nodes[n.agent];
   if (!s) return;
   Object.assign(s, {
-    model: n.model ?? s.model, up: n.up ?? s.up, children: n.children ?? s.children,
-    used: n.context?.used ?? s.used, limit: n.context?.limit ?? s.limit,
-    budget: n.budget_usd ?? s.budget
+    model: n.model ?? s.model, up: n.up ?? s.up, role: n.role ?? s.role,
+    children: n.children ?? s.children, used: n.context?.used ?? s.used,
+    limit: n.context?.limit ?? s.limit, budget: n.budget_usd ?? s.budget
   });
-  drawNodes();
+  drawRoster();
 }
 
-const ingest = e => e.type === "node" ? onNode(e) : onMessage(e);
+const ingest = e => (e.type === "node" ? onNode : onMessage)(e);
+
+/* ---- events ----------------------------------------------------------- */
+document.addEventListener("click", e => {
+  const a = e.target.closest(".agent");
+  if (a) { state.filter.agent = state.filter.agent === a.dataset.agent ? "" : a.dataset.agent;
+           $("f-agent").value = state.filter.agent; drawRoster(); drawRows(); return; }
+  const tr = e.target.closest("tbody tr");
+  if (tr) openDetail(+tr.dataset.i);
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { $("detail").hidden = true; state.sel = null; drawRows(); }
+  if (e.key !== "Enter") return;
+  const a = document.activeElement;
+  if (a?.classList.contains("agent")) a.click();
+  else if (a?.closest("tbody tr")) openDetail(+a.closest("tbody tr").dataset.i);
+});
+$("d-close").onclick = () => { $("detail").hidden = true; state.sel = null; drawRows(); };
+for (const [id, key] of [["f-agent","agent"], ["f-act","act"], ["f-ev","ev"], ["f-q","q"]])
+  $(id).addEventListener("input", e => { state.filter[key] = e.target.value; drawRoster(); drawRows(); });
+$("f-clear").onclick = () => {
+  state.filter = { agent: "", act: "", ev: "", q: "" };
+  $("f-agent").value = $("f-act").value = $("f-ev").value = $("f-q").value = "";
+  drawRoster(); drawRows();
+};
 
 /* ---- live, or synthetic ---------------------------------------------- */
 function live() {
   let es;
   try { es = new EventSource("/events"); } catch { return demo(); }
-  es.onopen = () => { $("mode").textContent = "live"; $("hint").textContent = ""; };
+  es.onopen = () => { $("mode").textContent = "live"; $("mode").classList.add("live"); $("hint").textContent = ""; };
   es.onmessage = ev => { try { ingest(JSON.parse(ev.data)); } catch {} };
   es.onerror = () => { es.close(); demo(); };
 }
 
-/* Synthetic run so the page renders before any node exists. Replace with
-   experiments/fixtures.py output once that lands. Shows the two moments worth
-   demoing: budget-sliced fan-out, and a peer dying mid-flight. */
+/* Synthetic run so the console renders before any node exists. Mirrors the
+   scenario in experiments/fixtures.py -- port from there once /events is
+   mounted. Carries claims deliberately: an audit view with no evidence to
+   audit demonstrates nothing. */
 function demo() {
   $("mode").textContent = "synthetic";
-  $("hint").textContent = "no /events — showing a synthetic run";
-  const models = { agent_a: "claude-opus-5", agent_b: "claude-opus-5",
-                   agent_c: "ollama:qwen2.5-coder", agent_d: "claude-haiku-4-5" };
+  $("hint").textContent = "no /events — synthetic run, not measured data";
+  const meta = {
+    agent_a: ["claude-opus-5", "planner"], agent_b: ["claude-opus-5", "executor"],
+    agent_c: ["ollama:qwen2.5-coder", "reviewer"], agent_d: ["claude-haiku-4-5", "executor"]
+  };
   for (const p of PEERS)
-    onNode({ type: "node", agent: p, model: models[p], up: true,
+    onNode({ type: "node", agent: p, model: meta[p][0], role: meta[p][1], up: true,
              children: 0, context: { used: 2000, limit: 200000 }, budget_usd: 0.5 });
 
+  const TASK = "Implement a binary search function";
+  const C = (claim, evidence, evidence_type) => ({ claim, evidence, evidence_type });
   const script = [
-    { lamport: 12, sender: "agent_a", receiver: "agent_b", performative: "task_request", cost: { usd: .0031 } },
-    { lamport: 13, sender: "agent_a", receiver: "agent_d", performative: "task_request", cost: { usd: .0028 } },
-    { lamport: 15, sender: "agent_b", receiver: "agent_b", performative: "spawn_ack", child: "b/worker_1", cost: { usd: .0012 } },
-    { lamport: 16, sender: "agent_b", receiver: "agent_b", performative: "spawn_ack", child: "b/worker_2", cost: { usd: .0012 } },
-    { lamport: 18, sender: "agent_d", receiver: "agent_a", performative: "task_result", cost: { usd: .0009 } },
-    { lamport: 20, sender: "agent_b", receiver: "agent_a", performative: "task_result", cost: { usd: .0044 } },
-    { lamport: 21, sender: "agent_a", receiver: "agent_c", performative: "task_request", cost: { usd: .0007 } },
-    { lamport: 23, sender: "agent_c", receiver: "agent_c", performative: "spawn_ack", child: "c/verifier_1 correctness" },
-    { lamport: 24, sender: "agent_c", receiver: "agent_c", performative: "spawn_ack", child: "c/verifier_2 edges" },
-    { lamport: 25, sender: "agent_c", receiver: "agent_c", performative: "spawn_ack", child: "c/verifier_3 execution" },
-    { lamport: 28, sender: "agent_c", receiver: "agent_a", performative: "task_result", cost: { usd: .0021 } },
-    { lamport: 30, sender: "agent_a", receiver: "agent_b", performative: "task_request", cost: { usd: .0033 } },
-    { lamport: 31, sender: "agent_b", receiver: "agent_b", performative: "task_result", note: "✕ AGENT_B DOWN", down: "agent_b" },
-    { lamport: 33, sender: "agent_b", receiver: "agent_a", performative: "child_result", dashed: true, note: "orphans reparented" },
-    { lamport: 35, sender: "agent_a", receiver: "agent_d", performative: "task_request", cost: { usd: .0026 } },
-    { lamport: 38, sender: "agent_d", receiver: "agent_a", performative: "task_result", cost: { usd: .0018 } }
+    { lamport: 12, sender: "agent_a", receiver: "agent_b", performative: "task_request",
+      task_status: "pending", cost: { usd: .0031, model: "claude-opus-5" },
+      payload: { subtask: "write the implementation", constraints: ["O(log n)", "Python 3.11"] },
+      claims: [C("bisect_left is O(log n)", "no test ran", "model_prior")] },
+    { lamport: 13, sender: "agent_a", receiver: "agent_d", performative: "task_request",
+      task_status: "pending", cost: { usd: .0028, model: "claude-opus-5" },
+      payload: { subtask: "write the tests" } },
+    { lamport: 15, sender: "agent_b", receiver: "agent_b", performative: "spawn_ack",
+      task_status: "in_progress", cost: { usd: .0012, model: "claude-opus-5" },
+      payload: { agent_path: "agent_b/worker_1" },
+      spawn: { parent: "agent_b", depth: 1, max_depth: 3 },
+      budget: { usd_remaining: .21, turns_remaining: 6 } },
+    { lamport: 18, sender: "agent_d", receiver: "agent_a", performative: "task_result",
+      task_status: "complete", cost: { usd: .0009, model: "claude-haiku-4-5" },
+      payload: { result: "8 tests written", exit_code: 0 },
+      artifacts: [{ ref: "sha256:9f2a1c4e" + "0".repeat(56), kind: "python_source",
+                    summary: "test_binary_search.py, 8 cases", tokens: 380 }],
+      claims: [C("all 8 tests pass", "pytest -q: 8 passed", "test_output")] },
+    { lamport: 20, sender: "agent_b", receiver: "agent_a", performative: "task_result",
+      task_status: "complete", cost: { usd: .0044, model: "claude-opus-5" },
+      payload: { result: "implementation complete", exit_code: 0 },
+      artifacts: [{ ref: "sha256:3b71ee02" + "0".repeat(56), kind: "python_source",
+                    summary: "binary search impl, 40 lines", tokens: 412 }],
+      claims: [C("handles the empty list", "test_empty passed", "test_output"),
+               C("the helper already exists", "read from src/util.py:41", "file_content")] },
+    { lamport: 21, sender: "agent_a", receiver: "agent_c", performative: "task_request",
+      task_status: "pending", cost: { usd: .0007, model: "claude-opus-5" },
+      payload: { subtask: "review both artifacts" } },
+    { lamport: 26, sender: "agent_c", receiver: "agent_a", performative: "task_result",
+      task_status: "needs_revision", cost: { usd: .0021, model: "ollama:qwen2.5-coder" },
+      payload: { result: "overflow on large midpoint", exit_code: 1 },
+      claims: [C("midpoint can overflow", "agent_b reported the bound", "peer_report"),
+               C("this is idiomatic Python", "the model believes so", "model_prior")] },
+    { lamport: 28, sender: "agent_a", receiver: "agent_b", performative: "task_request",
+      task_status: "in_progress", cost: { usd: .0033, model: "claude-opus-5" },
+      payload: { subtask: "fix the overflow" } },
+    { lamport: 31, sender: "agent_b", receiver: "agent_a", performative: "uncertain",
+      task_status: "uncertain", note: "agent_b down",
+      payload: { question: "use // 2 or >> 1?", options: ["floor div", "shift"] } },
+    { lamport: 33, sender: "agent_b", receiver: "agent_a", performative: "child_result",
+      task_status: "in_progress", payload: { result: "orphans reparented", summary: "2 children" } },
+    { lamport: 35, sender: "agent_a", receiver: "agent_d", performative: "spawn_refused",
+      task_status: "abandoned", payload: { reason: "budget_policy" },
+      budget: { usd_remaining: 0, turns_remaining: 0 } }
   ];
 
   let i = 0;
   (function step() {
-    if (i >= script.length) { $("hint").textContent += "  · run complete"; return; }
+    if (i >= script.length) { $("hint").textContent += " · run complete"; return; }
     const m = script[i++];
-    onMessage(m);
-    if (m.down) onNode({ type: "node", agent: m.down, up: false, children: 0 });
+    onMessage({ type: "message", conversation_id: "conv-7c1e9a", root_task: TASK, turn: i,
+                message_id: `synthetic-${String(i).padStart(2, "0")}`,
+                timestamp: new Date().toISOString(),
+                context: { used: 2000 + i * 3200, limit: 200000 }, ...m });
+    if (m.note === "agent_b down") onNode({ type: "node", agent: "agent_b", up: false });
     else {
       const p = peerOf(m.sender), n = state.nodes[p];
-      onNode({ type: "node", agent: p, children: m.child ? n.children + 1 : n.children,
-               context: { used: n.used + 3200 + Math.round(i * 900), limit: n.limit },
+      onNode({ type: "node", agent: p, context: { used: n.used + 3200 + i * 700, limit: n.limit },
                budget_usd: Math.max(0, n.budget - (m.cost?.usd || 0) * 12) });
     }
-    setTimeout(step, 620);
+    setTimeout(step, 700);
   })();
 }
 
-drawNodes();
+drawRoster();
 live();
 </script>

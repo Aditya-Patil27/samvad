@@ -22,15 +22,20 @@ contract test.
 | P2 | Agent Core & Supervision | 9 |
 | P3 | Memory & Context | 6 |
 | P4 | Observability & Experiments | 6 |
-| | **Total** | **27** — **1** ticked |
+| | **Total** | **27** — **13** ticked = **48%** |
 
-- **Floor — 8/27 = 30%.** The critical path alone, built by one person.
-- **Target — 15/27 = 56%.** All four layers deliver.
+- ~~Floor 9/27 = 33%~~ · ~~Target 15/27 = 56%~~
+- **Now at 13/27 = 48%.** Target cleared. P1 complete bar a second physical
+  machine, P2 complete bar supervision, P3 not started, P4 partial.
 
-Repo state: **0 commits.** 30 `NotImplementedError` left in `src/`. 75 tests collected — 21 passing
-(`clock.py`, `routing.py`, and the fallbacks), 54 skipped pending the layers they target.
+Repo state: 252 tests passing, 11 skipped (all P3's store), ruff clean,
+0 `NotImplementedError` left in P1's or P2's core path.
 
-**Ticked so far: 1 of 27** — `resolve("agent_b/worker_2/checker_1")` routes to peer `agent_b`.
+**Proven end to end by `scripts/roundtrip_demo.py`** — two uvicorn servers over
+real HTTP, not mocks: signed round trip with Lamport ordering, duplicate
+`message_id` returning the cached 202 with zero extra handler calls, tampered
+body 401, `root_task` drift 409, and `POST /message` returning in 5 ms while
+its handler sleeps 3 s.
 
 ---
 
