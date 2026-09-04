@@ -1,0 +1,18 @@
+# copy to config/peers.yaml and set your real LAN addresses.
+# peers.yaml is gitignored -- IPs differ per person and change per network.
+#
+# Different model per peer is deliberate: heterogeneous backends give
+# uncorrelated errors, which is what makes agreement mean anything.
+# See docs/EXPERIMENTS.md measurement 5.
+
+peers:
+  agent_a: {host: 192.168.1.41, port: 8000, role: planner,  model: claude-opus-5}
+  agent_b: {host: 192.168.1.42, port: 8000, role: executor, model: claude-opus-5}
+  agent_c: {host: 192.168.1.43, port: 8000, role: reviewer, model: "ollama:qwen2.5-coder"}
+  agent_d: {host: 192.168.1.44, port: 8000, role: executor, model: claude-haiku-4-5}
+
+defaults:
+  max_depth: 3
+  budget:
+    usd: 0.50
+    turns: 12

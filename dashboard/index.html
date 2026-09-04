@@ -1,0 +1,323 @@
+<!-- OWNER: P4 -- see docs/WORK.md
+     Served by P1's FastAPI at GET /. No build step, no npm, no CDN.
+     Opening this file directly falls back to synthetic data, so it renders
+     before any node exists.
+
+     Design rationale in Samvad.md -> Design Decisions (Frontend).
+     Vertical axis is the LAMPORT CLOCK, not wall time. Four fixed columns are
+     four physical laptops. Messages are lines crossing between them. The view
+     is a sequence diagram because the data is a sequence diagram.
+
+     Expected SSE frames on /events:
+       {"type":"node","agent":"agent_b","model":"claude-opus-5","up":true,
+        "context":{"used":14200,"limit":200000},"children":2,"budget_usd":0.42}
+       {"type":"message","lamport":14,"sender":"agent_a","receiver":"agent_b",
+        "performative":"task_request","task_status":"in_progress",
+        "cost":{"usd":0.0031}}
+-->
+<!doctype html>
+<meta charset="utf-8">
+<title>Samvad</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  /* Data-ink ratio: every pixel encodes something or it is deleted.
+     No radius, no shadow, no gradient. Rules separate; boxes decorate. */
+  :root {
+    --ground: #faf9f7;
+    --rule:   #d4d0c8;
+    --rule-2: #ebe8e3;
+    --ink:    #1a1a18;
+    --muted:  #6b665e;
+    --a: #1a5c8f;  --b: #b8541a;  --c: #2d6b4a;  --d: #7a3b6b;
+    --gutter: 68px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--ground); color: var(--ink);
+    font: 13px/1.45 ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .hair { border-bottom: 1px solid var(--rule); }
+
+  /* ---- header ------------------------------------------------------ */
+  header {
+    display: flex; align-items: baseline; gap: 22px;
+    padding: 10px 14px; border-bottom: 1px solid var(--ink);
+  }
+  .brand { font-weight: 700; letter-spacing: .14em; }
+  .meta { color: var(--muted); }
+  .spend { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
+  .spend .n { font-size: 34px; font-weight: 700; letter-spacing: -.02em; }
+  .spend .cap { color: var(--muted); }
+  .mode {
+    border: 1px solid var(--rule); padding: 1px 6px;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-size: 11px;
+  }
+
+  /* ---- node strip -------------------------------------------------- */
+  .nodes { display: grid; grid-template-columns: var(--gutter) repeat(4, 1fr); }
+  .nodes .pad { border-bottom: 1px solid var(--rule); }
+  .node {
+    padding: 8px 12px 9px;
+    border-left: 1px solid var(--rule-2); border-bottom: 1px solid var(--rule);
+  }
+  .node .id { font-weight: 700; letter-spacing: .06em; }
+  .node .model, .node .stat { color: var(--muted); }
+  .node .stat { display: flex; justify-content: space-between; }
+  .bar { height: 5px; border: 1px solid var(--rule); margin: 6px 0 5px; }
+  .bar i { display: block; height: 100%; background: currentColor; }
+  .node.down { color: var(--muted); }
+  .node.down .id::after { content: "  \2715  DOWN"; letter-spacing: .08em; }
+
+  /* ---- trace ------------------------------------------------------- */
+  .head {
+    display: grid; grid-template-columns: var(--gutter) repeat(4, 1fr);
+    color: var(--muted); font-size: 11px; letter-spacing: .1em;
+    padding: 5px 0; border-bottom: 1px solid var(--ink);
+  }
+  .head span { padding-left: 12px; }
+  .head span:first-child { text-align: right; padding: 0 10px 0 0; }
+
+  .scroll { flex: 1; overflow-y: auto; }
+  #trace { position: relative; min-height: 100%; }
+  .rails { position: absolute; inset: 0; pointer-events: none; }
+  .rails i {
+    position: absolute; top: 0; bottom: 0; width: 1px; background: var(--rule-2);
+  }
+
+  .row { display: grid; grid-template-columns: var(--gutter) 1fr; min-height: 21px; }
+  .row:hover { background: #f2efe9; }
+  .tick { text-align: right; padding-right: 10px; color: var(--muted); }
+  .lanes { position: relative; height: 21px; }
+
+  .msg { position: absolute; top: 9px; height: 1px; background: currentColor; }
+  .msg::after {                      /* arrowhead, direction set per message */
+    content: ""; position: absolute; top: -3px; width: 0; height: 0;
+    border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
+  }
+  .msg.fwd::after  { right: -1px; border-left: 6px solid currentColor; }
+  .msg.back::after { left: -1px;  border-right: 6px solid currentColor; }
+  .msg.dashed { background: repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px); }
+
+  .tag {
+    position: absolute; top: -8px; padding: 0 5px; background: var(--ground);
+    white-space: nowrap; font-size: 11px;
+  }
+  .tag b { font-weight: 700; }
+  .tag .usd { color: var(--muted); }
+
+  .self { position: absolute; top: 3px; font-size: 11px; white-space: nowrap; }
+  .self .kid { color: var(--muted); }
+
+  .row.flash .lanes { animation: f .12s steps(1); }
+  @keyframes f { from { background: #f0e6cf; } }
+
+  .fail { font-weight: 700; letter-spacing: .06em; }
+  .rule-row { grid-column: 1 / -1; border-top: 1px solid var(--rule); }
+
+  footer {
+    display: flex; gap: 20px; padding: 6px 14px;
+    border-top: 1px solid var(--ink); color: var(--muted); font-size: 11px;
+  }
+  footer b { color: var(--ink); font-weight: 700; }
+</style>
+
+<header>
+  <span class="brand">SAMVAD</span>
+  <span class="meta">lamport <b id="lam">0</b></span>
+  <span class="meta"><b id="nmsg">0</b> messages</span>
+  <span class="mode" id="mode">connecting</span>
+  <span class="spend"><span class="cap">spend</span><span class="n" id="usd">$0.0000</span></span>
+</header>
+
+<div class="nodes" id="nodes"><div class="pad"></div></div>
+
+<div class="head">
+  <span>LAMPORT</span><span>AGENT_A</span><span>AGENT_B</span><span>AGENT_C</span><span>AGENT_D</span>
+</div>
+
+<div class="scroll" id="scroll">
+  <div id="trace"><div class="rails" id="rails"></div></div>
+</div>
+
+<footer>
+  <span>ordered by <b>lamport clock</b>, not wall time</span>
+  <span>4 devices &middot; 4 models</span>
+  <span id="hint"></span>
+</footer>
+
+<script>
+"use strict";
+
+const PEERS = ["agent_a", "agent_b", "agent_c", "agent_d"];
+const HUE = { agent_a: "var(--a)", agent_b: "var(--b)", agent_c: "var(--c)", agent_d: "var(--d)" };
+const $ = id => document.getElementById(id);
+
+const state = {
+  usd: 0, msgs: 0, lamport: 0,
+  nodes: Object.fromEntries(PEERS.map(p => [p, {
+    model: "—", up: true, used: 0, limit: 200000, children: 0, budget: 0
+  }]))
+};
+
+/* ---- node strip ---------------------------------------------------- */
+const strip = $("nodes");
+for (const p of PEERS) {
+  const el = document.createElement("div");
+  el.className = "node"; el.id = "n-" + p; el.style.color = HUE[p];
+  strip.append(el);
+}
+
+function drawNodes() {
+  for (const p of PEERS) {
+    const n = state.nodes[p], el = $("n-" + p);
+    const pct = n.limit ? Math.min(100, n.used / n.limit * 100) : 0;
+    el.classList.toggle("down", !n.up);
+    el.innerHTML =
+      `<div class="id">${p.toUpperCase()}</div>` +
+      `<div class="model">${n.model}</div>` +
+      `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>` +
+      `<div class="stat"><span>ctx ${(n.used / 1000).toFixed(1)}k</span>` +
+      `<span>${n.children} child${n.children === 1 ? "" : "ren"}</span></div>` +
+      `<div class="stat"><span>budget</span><span>$${n.budget.toFixed(3)}</span></div>`;
+  }
+}
+
+/* ---- lane geometry -------------------------------------------------- */
+const centre = i => (i + 0.5) / 4 * 100;          // % across the lane strip
+$("rails").innerHTML = PEERS.map(
+  (_, i) => `<i style="left:calc(var(--gutter) + (100% - var(--gutter)) * ${centre(i) / 100})"></i>`
+).join("");
+
+const trace = $("scroll"), body = $("trace");
+let lastTick = null;
+
+function row(lamport) {
+  const r = document.createElement("div");
+  r.className = "row flash";
+  const show = lamport !== lastTick;
+  lastTick = lamport;
+  r.innerHTML = `<div class="tick">${show ? lamport : ""}</div><div class="lanes"></div>`;
+  body.append(r);
+  const atEnd = trace.scrollHeight - trace.scrollTop - trace.clientHeight < 80;
+  if (atEnd) trace.scrollTop = trace.scrollHeight;
+  return r.querySelector(".lanes");
+}
+
+/* ---- events --------------------------------------------------------- */
+function onMessage(m) {
+  state.msgs++; state.lamport = Math.max(state.lamport, m.lamport);
+  state.usd += m.cost?.usd || 0;
+  $("lam").textContent = state.lamport;
+  $("nmsg").textContent = state.msgs;
+  $("usd").textContent = "$" + state.usd.toFixed(4);
+
+  const from = PEERS.indexOf(peerOf(m.sender)), to = PEERS.indexOf(peerOf(m.receiver));
+  if (from < 0) return;
+  const lanes = row(m.lamport);
+  const label = `<b>${m.performative}</b>` +
+    (m.cost?.usd ? ` <span class="usd">$${m.cost.usd.toFixed(4)}</span>` : "");
+
+  if (from === to || to < 0) {                       // stayed on one device
+    const s = document.createElement("div");
+    s.className = "self";
+    s.style.left = centre(from) + "%";
+    s.style.color = HUE[PEERS[from]];
+    s.innerHTML = (m.child ? `<span class="kid">├─ ${m.child}</span> ` : "") + label;
+    lanes.append(s);
+  } else {                                           // crossed the network
+    const lo = Math.min(from, to), hi = Math.max(from, to);
+    const line = document.createElement("div");
+    line.className = "msg " + (to > from ? "fwd" : "back") + (m.dashed ? " dashed" : "");
+    line.style.left = centre(lo) + "%";
+    line.style.width = (centre(hi) - centre(lo)) + "%";
+    line.style.color = HUE[PEERS[from]];
+    line.innerHTML = `<span class="tag" style="left:8px">${label}</span>`;
+    lanes.append(line);
+  }
+  if (m.note) {
+    const n = document.createElement("div");
+    n.className = "self fail";
+    n.style.left = centre(to < 0 ? from : to) + "%";
+    n.style.color = HUE[PEERS[from]];
+    n.textContent = m.note;
+    lanes.append(n);
+  }
+}
+
+const peerOf = addr => (addr || "").split("/")[0];
+
+function onNode(n) {
+  const s = state.nodes[n.agent];
+  if (!s) return;
+  Object.assign(s, {
+    model: n.model ?? s.model, up: n.up ?? s.up, children: n.children ?? s.children,
+    used: n.context?.used ?? s.used, limit: n.context?.limit ?? s.limit,
+    budget: n.budget_usd ?? s.budget
+  });
+  drawNodes();
+}
+
+const ingest = e => e.type === "node" ? onNode(e) : onMessage(e);
+
+/* ---- live, or synthetic ---------------------------------------------- */
+function live() {
+  let es;
+  try { es = new EventSource("/events"); } catch { return demo(); }
+  es.onopen = () => { $("mode").textContent = "live"; $("hint").textContent = ""; };
+  es.onmessage = ev => { try { ingest(JSON.parse(ev.data)); } catch {} };
+  es.onerror = () => { es.close(); demo(); };
+}
+
+/* Synthetic run so the page renders before any node exists. Replace with
+   experiments/fixtures.py output once that lands. Shows the two moments worth
+   demoing: budget-sliced fan-out, and a peer dying mid-flight. */
+function demo() {
+  $("mode").textContent = "synthetic";
+  $("hint").textContent = "no /events — showing a synthetic run";
+  const models = { agent_a: "claude-opus-5", agent_b: "claude-opus-5",
+                   agent_c: "ollama:qwen2.5-coder", agent_d: "claude-haiku-4-5" };
+  for (const p of PEERS)
+    onNode({ type: "node", agent: p, model: models[p], up: true,
+             children: 0, context: { used: 2000, limit: 200000 }, budget_usd: 0.5 });
+
+  const script = [
+    { lamport: 12, sender: "agent_a", receiver: "agent_b", performative: "task_request", cost: { usd: .0031 } },
+    { lamport: 13, sender: "agent_a", receiver: "agent_d", performative: "task_request", cost: { usd: .0028 } },
+    { lamport: 15, sender: "agent_b", receiver: "agent_b", performative: "spawn_ack", child: "b/worker_1", cost: { usd: .0012 } },
+    { lamport: 16, sender: "agent_b", receiver: "agent_b", performative: "spawn_ack", child: "b/worker_2", cost: { usd: .0012 } },
+    { lamport: 18, sender: "agent_d", receiver: "agent_a", performative: "task_result", cost: { usd: .0009 } },
+    { lamport: 20, sender: "agent_b", receiver: "agent_a", performative: "task_result", cost: { usd: .0044 } },
+    { lamport: 21, sender: "agent_a", receiver: "agent_c", performative: "task_request", cost: { usd: .0007 } },
+    { lamport: 23, sender: "agent_c", receiver: "agent_c", performative: "spawn_ack", child: "c/verifier_1 correctness" },
+    { lamport: 24, sender: "agent_c", receiver: "agent_c", performative: "spawn_ack", child: "c/verifier_2 edges" },
+    { lamport: 25, sender: "agent_c", receiver: "agent_c", performative: "spawn_ack", child: "c/verifier_3 execution" },
+    { lamport: 28, sender: "agent_c", receiver: "agent_a", performative: "task_result", cost: { usd: .0021 } },
+    { lamport: 30, sender: "agent_a", receiver: "agent_b", performative: "task_request", cost: { usd: .0033 } },
+    { lamport: 31, sender: "agent_b", receiver: "agent_b", performative: "task_result", note: "✕ AGENT_B DOWN", down: "agent_b" },
+    { lamport: 33, sender: "agent_b", receiver: "agent_a", performative: "child_result", dashed: true, note: "orphans reparented" },
+    { lamport: 35, sender: "agent_a", receiver: "agent_d", performative: "task_request", cost: { usd: .0026 } },
+    { lamport: 38, sender: "agent_d", receiver: "agent_a", performative: "task_result", cost: { usd: .0018 } }
+  ];
+
+  let i = 0;
+  (function step() {
+    if (i >= script.length) { $("hint").textContent += "  · run complete"; return; }
+    const m = script[i++];
+    onMessage(m);
+    if (m.down) onNode({ type: "node", agent: m.down, up: false, children: 0 });
+    else {
+      const p = peerOf(m.sender), n = state.nodes[p];
+      onNode({ type: "node", agent: p, children: m.child ? n.children + 1 : n.children,
+               context: { used: n.used + 3200 + Math.round(i * 900), limit: n.limit },
+               budget_usd: Math.max(0, n.budget - (m.cost?.usd || 0) * 12) });
+    }
+    setTimeout(step, 620);
+  })();
+}
+
+drawNodes();
+live();
+</script>

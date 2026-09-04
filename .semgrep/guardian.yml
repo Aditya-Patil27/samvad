@@ -1,0 +1,5 @@
+serial: 3
+anonymous_user_id: dbe6a0df-1e01-4e66-959a-6ef65fb36966
+semgrep:
+    auth_method: oauth
+expiry: 2026-09-04T17:26:21.6704806+05:30

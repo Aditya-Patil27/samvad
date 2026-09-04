@@ -1,0 +1,8 @@
+[
+  {"id": "t01", "task": "Implement a binary search function",
+   "constraints": ["O(log n)", "Python 3.11", "pytest"]},
+  {"id": "t02", "task": "Write a function that flattens an arbitrarily nested list",
+   "constraints": ["no recursion limit issues", "pytest"]},
+  {"id": "t03", "task": "Implement an LRU cache with a fixed capacity",
+   "constraints": ["O(1) get and put", "pytest"]}
+]
