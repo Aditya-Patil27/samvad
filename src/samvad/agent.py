@@ -75,8 +75,17 @@ class Agent:
 
         if msg.performative is Performative.SPAWN_REQUEST:
             return self._handle_spawn(msg)
-        if msg.performative in (Performative.TASK_REQUEST, Performative.TASK_RESULT):
+        if msg.performative is Performative.TASK_REQUEST:
             return await self._handle_task(msg)
+        if msg.performative is Performative.TASK_RESULT:
+            # A finished result ENDS the exchange. Answering a `complete` with
+            # more work is how two agents ping-pong until the turn budget drains
+            # -- the livelock guard catches it, but only after paying for a
+            # dozen calls that decided nothing. Only work that was sent back for
+            # revision earns another turn.
+            if msg.task_status is TaskStatus.NEEDS_REVISION:
+                return await self._handle_task(msg)
+            return []
         # spawn_ack, child_result, spawn_refused, budget_exhausted, uncertain:
         # terminal for this agent. Silence is a valid reply -- a protocol that
         # requires an answer to every message never stops talking.
