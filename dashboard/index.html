@@ -125,6 +125,49 @@
   .track i.hot { background: var(--warn); }
   .track i.full { background: var(--bad); }
 
+
+  /* ---- setup panel ---- */
+  .setup { border-top: 1px solid var(--line); }
+  .setup-h {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); background: none; border: 0; cursor: pointer;
+    padding: 12px 14px 10px; text-align: left;
+  }
+  .setup-h:hover { color: var(--ink); }
+  .setup-h .chev { margin-left: auto; transition: transform .15s; }
+  .setup[open] .setup-h .chev { transform: rotate(90deg); }
+  .setup-body { padding: 0 14px 14px; display: grid; gap: 10px; }
+  .peer-row { display: grid; grid-template-columns: 62px 1fr 52px; gap: 5px; align-items: center; }
+  .peer-row .who { font: 600 11px var(--mono); }
+  .peer-row input {
+    font: 11.5px var(--mono); color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px; min-width: 0;
+  }
+  .peer-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .peer-row.bad input[data-f="host"] { border-color: var(--bad); }
+  .mine { font: 10px var(--mono); color: var(--muted); }
+  .mine b { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  .setup-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .setup-actions .btn { flex: 1; min-width: 78px; }
+  .probe { display: grid; gap: 3px; font: 10.5px var(--mono); }
+  .probe div { display: flex; gap: 6px; align-items: baseline; }
+  .probe .st { font-weight: 600; }
+  .probe .reachable { color: var(--ok); }
+  .probe .refused   { color: var(--warn); }
+  .probe .timeout   { color: var(--bad); }
+  .probe .unset     { color: var(--muted); }
+  .setup-note { font-size: 10.5px; line-height: 1.5; color: var(--muted); }
+  .setup-note b { color: var(--ink-2); }
+  textarea.yaml {
+    width: 100%; min-height: 130px; resize: vertical;
+    font: 10.5px/1.45 var(--mono); color: var(--ink); background: var(--sunk);
+    border: 1px solid var(--line); border-radius: 3px; padding: 7px;
+  }
+  .setup-msg { font: 11px var(--mono); }
+  .setup-msg.ok  { color: var(--ok); }
+  .setup-msg.err { color: var(--bad); }
+
   /* ---- main ---- */
   main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .filters {
@@ -230,6 +273,32 @@
   <aside>
     <div class="aside-h">Agents</div>
     <div id="roster"></div>
+
+    <details class="setup" id="setup">
+      <summary class="setup-h">Peer setup<span class="chev">&rsaquo;</span></summary>
+      <div class="setup-body">
+        <div class="setup-note">
+          Every device needs the <b>same peers.yaml</b>. Fill it in once, save it here,
+          then copy the YAML to the other laptops.
+        </div>
+        <div id="peer-rows"></div>
+        <div class="mine" id="mine"></div>
+        <div class="setup-actions">
+          <button class="btn" id="s-save">Save file</button>
+          <button class="btn" id="s-test">Test reach</button>
+        </div>
+        <div class="setup-msg" id="s-msg"></div>
+        <div class="probe" id="s-probe"></div>
+        <textarea class="yaml" id="s-yaml" readonly spellcheck="false"
+                  aria-label="peers.yaml to copy to the other devices"></textarea>
+        <button class="btn" id="s-copy">Copy YAML for other devices</button>
+        <div class="setup-note">
+          <b>refused</b> = host reachable, node not started yet — fine.
+          <b>timeout</b> = cannot reach it at all; usually AP isolation on shared
+          wifi. Try a phone hotspot.
+        </div>
+      </div>
+    </details>
   </aside>
 
   <main>
@@ -584,6 +653,108 @@ function demo() {
     setTimeout(step, 700);
   })();
 }
+
+/* ---- peer setup ------------------------------------------------------
+   The dashboard is served by the node it configures, so POST /setup writes
+   config/peers.yaml on THIS machine. It refuses writes from anywhere else --
+   the node binds 0.0.0.0, and without that restriction anyone on the wifi
+   could redirect where this node sends its traffic. The YAML box exists
+   because the other three laptops still need the same file. */
+const setup = { peers: {}, defaults: null, local: [] };
+
+async function loadSetup() {
+  let data;
+  try { data = await (await fetch("/setup")).json(); }
+  catch { $("setup").hidden = true; return; }   // opened as a file:// page
+  setup.peers = data.peers || {};
+  setup.defaults = data.defaults;
+  setup.local = data.local_addresses || [];
+  drawPeerRows();
+  $("mine").innerHTML = setup.local.length
+    ? "this machine: " + setup.local.map(a => `<b data-ip="${a}">${a}</b>`).join(" ")
+    : "";
+  $("s-msg").textContent = data.saved ? "loaded from " + data.config_path : "not saved yet";
+  $("s-msg").className = "setup-msg";
+}
+
+function drawPeerRows() {
+  $("peer-rows").innerHTML = Object.entries(setup.peers).map(([name, c]) => `
+    <div class="peer-row" data-peer="${name}">
+      <span class="who">${name}</span>
+      <input data-f="host" value="${esc(c.host || "")}" placeholder="192.168.1.x" spellcheck="false">
+      <input data-f="port" value="${esc(c.port ?? 8000)}" inputmode="numeric">
+    </div>`).join("");
+}
+
+function readPeerRows() {
+  const peers = {};
+  for (const row of document.querySelectorAll(".peer-row")) {
+    const name = row.dataset.peer;
+    const prev = setup.peers[name] || {};
+    peers[name] = {
+      host: row.querySelector('[data-f="host"]').value.trim(),
+      port: Number(row.querySelector('[data-f="port"]').value) || 8000,
+      role: prev.role || "executor",
+      model: prev.model || "mock"
+    };
+  }
+  return peers;
+}
+
+function say(text, kind) {
+  $("s-msg").textContent = text;
+  $("s-msg").className = "setup-msg " + (kind || "");
+}
+
+$("s-save").onclick = async () => {
+  const peers = readPeerRows();
+  const missing = Object.entries(peers).filter(([, c]) => !c.host).map(([n]) => n);
+  if (missing.length) return say("no address for: " + missing.join(", "), "err");
+  say("saving…");
+  try {
+    const r = await fetch("/setup", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ peers, defaults: setup.defaults })
+    });
+    const data = await r.json();
+    if (!r.ok) return say(data.error || "rejected", "err");
+    setup.peers = data.peers;
+    $("s-yaml").value = data.yaml;
+    say("written — now copy the YAML to the other devices", "ok");
+  } catch (e) { say("could not reach this node: " + e.message, "err"); }
+};
+
+$("s-test").onclick = async () => {
+  say("probing…");
+  try {
+    const data = await (await fetch("/netcheck")).json();
+    $("s-probe").innerHTML = Object.entries(data.peers).map(([name, r]) =>
+      `<div><span class="st ${r.status}">${r.status.padEnd(9)}</span>
+       <span>${name}${r.self ? " (this node)" : ""}</span>
+       <span style="color:var(--muted)">${esc(r.host || "unset")}${r.host ? ":" + r.port : ""}</span></div>`
+    ).join("");
+    const stuck = Object.values(data.peers).filter(r => r.status === "timeout").length;
+    say(stuck ? `${stuck} unreachable — see the note below` : "all peers reachable", stuck ? "err" : "ok");
+  } catch (e) { say("probe failed: " + e.message, "err"); }
+};
+
+$("s-copy").onclick = async () => {
+  const text = $("s-yaml").value;
+  if (!text) return say("save first, then copy", "err");
+  try { await navigator.clipboard.writeText(text); say("copied", "ok"); }
+  catch { $("s-yaml").select(); say("press Ctrl+C to copy", ""); }
+};
+
+document.addEventListener("click", e => {
+  const ip = e.target.closest("[data-ip]");
+  if (!ip) return;
+  // Fill the first empty host with this machine's address: your own IP is the
+  // one people most often get wrong, and the node already knows it.
+  const empty = [...document.querySelectorAll('[data-f="host"]')].find(i => !i.value);
+  if (empty) { empty.value = ip.dataset.ip; empty.focus(); }
+});
+
+loadSetup();
 
 drawRoster();
 live();
