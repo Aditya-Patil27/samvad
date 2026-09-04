@@ -32,13 +32,19 @@ MODEL_LIMITS: dict[str, int] = {
     "claude-opus-5": 1_000_000,
     "claude-sonnet-5": 1_000_000,
     "claude-haiku-4-5": 200_000,
-    # Local models, free to run. Windows are the model's native context, which
-    # is far smaller than the API models' -- an 8B model on a laptop is exactly
-    # the peer backpressure exists to protect.
-    "ollama:qwen2.5-coder": 32_768,
-    "ollama:qwen3:8b": 40_960,
-    "ollama:llama3.2": 131_072,
-    "ollama:deepseek-coder-v2": 163_840,
+    # Local models. These are what OLLAMA SERVES, not what the model's spec
+    # sheet claims -- and the two are very different. Ollama defaults to a
+    # 4096-token window regardless of the model's capability, so a table
+    # carrying qwen3's theoretical 40,960 would have been 10x optimistic and
+    # backpressure would never have tripped.
+    #
+    # samvad.llm.ollama.DEFAULT_NUM_CTX is the value actually requested, and
+    # these must stay equal to it. Raise both together, and only as far as the
+    # GPU has VRAM for the larger KV cache.
+    "ollama:qwen2.5-coder": 4_096,
+    "ollama:qwen3:8b": 4_096,
+    "ollama:llama3.2": 4_096,
+    "ollama:deepseek-coder-v2": 4_096,
 }
 
 #: Conservative: an unknown model is assumed to have the SMALLEST window in the

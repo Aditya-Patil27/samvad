@@ -55,6 +55,20 @@ RATES_USD_PER_MTOK = (0.0, 0.0)
 #: the eight concurrency slots forever.
 DEFAULT_TIMEOUT = httpx.Timeout(connect=2.0, read=180.0, write=10.0, pool=5.0)
 
+#: Context window REQUESTED from ollama, in tokens.
+#:
+#: Ollama defaults to 4096 and says nothing about it: `ollama ps` reports
+#: "CONTEXT 4096" while the model's own spec sheet says far more. If this is
+#: not sent, ContextTracker computes backpressure against a window the model
+#: is not running with, and measurement 4 measures the wrong ceiling -- the
+#: same failure as a wrong MODEL_LIMITS entry, arriving from the other side.
+#:
+#: 4096 is kept as the default deliberately. Raising it grows the KV cache in
+#: VRAM, and on a 6GB card already holding a ~6GB model that pushes layers
+#: back onto the CPU and slows generation. Raise it per peer in peers.yaml
+#: when the card has room; keep the value here honest either way.
+DEFAULT_NUM_CTX = 4096
+
 
 class OllamaError(RuntimeError):
     """Base for every failure of this backend. Catch this one."""
@@ -150,10 +164,12 @@ class OllamaBackend:
         host: str = DEFAULT_HOST,
         timeout: httpx.Timeout | float = DEFAULT_TIMEOUT,
         client: httpx.AsyncClient | None = None,
+        num_ctx: int = DEFAULT_NUM_CTX,
     ) -> None:
         self.model = model.removeprefix(MODEL_PREFIX)
         self.host = host.rstrip("/")
         self.timeout = timeout
+        self.num_ctx = num_ctx
         self._client = client
         self._owns_client = client is None
 
@@ -180,7 +196,15 @@ class OllamaBackend:
             path, payload = "/api/generate", {"prompt": render_prompt(prompt)}
             text_of = _generate_text
 
-        body = await self._post(path, {"model": self.model, "stream": False, **payload})
+        body = await self._post(path, {
+            "model": self.model,
+            "stream": False,
+            # Sent EXPLICITLY. Without it ollama silently serves its own
+            # default and the number this process believes is the window is
+            # not the number the model is actually running with.
+            "options": {"num_ctx": self.num_ctx},
+            **payload,
+        })
         return Completion(text=text_of(body), usage=_usage(body, self.model_id))
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
