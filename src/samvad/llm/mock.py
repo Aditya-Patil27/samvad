@@ -24,10 +24,9 @@ with nothing to measure.
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from samvad.llm.base import Completion, Usage
+from samvad.llm.base import Completion, Usage, render_prompt
 
 DEFAULT_MODEL = "mock"
 DEFAULT_REPLY = "ok"
@@ -37,23 +36,6 @@ DEFAULT_REPLY = "ok"
 #: real count (docs/PROTOCOL.md is explicit that an estimate makes backpressure
 #: worthless).
 _CHARS_PER_TOKEN = 4
-
-
-def _prompt_text(prompt: Any) -> str:
-    """A stable string for any prompt shape.
-
-    P2 has not settled the prompt type yet and the mock must not be the thing
-    that forces the decision. Stable is the requirement: a default `repr()`
-    carries a memory address, which would make token counts differ between runs.
-    """
-    if isinstance(prompt, str):
-        return prompt
-    if isinstance(prompt, bytes):
-        return prompt.decode("utf-8", "replace")
-    try:
-        return json.dumps(prompt, sort_keys=True, default=repr)
-    except (TypeError, ValueError):
-        return repr(prompt)
 
 
 def _tokens(text: str) -> int:
@@ -107,7 +89,7 @@ class MockBackend:
         else:
             text = self.replies[0]
 
-        rendered = _prompt_text(prompt)
+        rendered = render_prompt(prompt)
         input_tokens = _tokens(rendered)
         cache_read = input_tokens if self.simulate_cache and rendered in self._seen else 0
         self._seen.add(rendered)
