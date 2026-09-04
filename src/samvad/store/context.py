@@ -32,7 +32,13 @@ MODEL_LIMITS: dict[str, int] = {
     "claude-opus-5": 1_000_000,
     "claude-sonnet-5": 1_000_000,
     "claude-haiku-4-5": 200_000,
+    # Local models, free to run. Windows are the model's native context, which
+    # is far smaller than the API models' -- an 8B model on a laptop is exactly
+    # the peer backpressure exists to protect.
     "ollama:qwen2.5-coder": 32_768,
+    "ollama:qwen3:8b": 40_960,
+    "ollama:llama3.2": 131_072,
+    "ollama:deepseek-coder-v2": 163_840,
 }
 
 #: Conservative: an unknown model is assumed to have the SMALLEST window in the

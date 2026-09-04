@@ -12,7 +12,6 @@ This is the single most effective hallucination control in the system.
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -68,11 +67,13 @@ class Agent:
         self,
         llm: Any = None,
         agent_path: str | None = None,
+        model: str | None = None,
         clock: LamportClock | None = None,
         breaker: CircuitBreaker | None = None,
     ) -> None:
-        self.llm = llm if llm is not None else _default_backend()
+        self.llm = llm if llm is not None else _default_backend(model)
         self.agent_path = agent_path
+        self.model = model
         self.clock = clock or LamportClock()
         self.breaker = breaker or CircuitBreaker()
 
@@ -282,17 +283,14 @@ def _parse(text: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _default_backend() -> Any:
+def _default_backend(model: str | None = None) -> Any:
     """MOCK_LLM=1 is the default, not the exception.
 
-    All development runs on the mock. Live API calls cost real money on
-    someone's personal key, and this system spawns recursively -- so the
-    expensive backend is the one you have to ask for by name.
+    Selection lives in samvad.llm.default_backend so a peer's `model` string
+    from config/peers.yaml actually chooses the backend. MOCK_LLM still wins
+    over the table: a config naming a real model runs the mock anyway unless
+    someone deliberately turns it off.
     """
-    if os.environ.get("MOCK_LLM", "1") != "0":
-        from samvad.llm.mock import MockBackend
+    from samvad.llm import default_backend
 
-        return MockBackend()
-    from samvad.llm.claude import ClaudeBackend
-
-    return ClaudeBackend()
+    return default_backend(model)

@@ -113,7 +113,8 @@ class Node:
         self.clock = LamportClock()
         self.log = MessageLog(db or ":memory:")
         self.blobs = BlobStore(db or ":memory:")
-        self.agent = Agent(agent_path=name, clock=self.clock)
+        self.model = self.peers[name].get("model", "mock")
+        self.agent = Agent(agent_path=name, clock=self.clock, model=self.model)
         self.transport = LanTransport(self.peers, secret=self.secret)
         self.app = make_app(
             self.inbox,
@@ -193,7 +194,7 @@ class Node:
     def publish_state(self) -> None:
         BUS.publish_node(
             self.name,
-            model=self.peers[self.name].get("model", "mock"),
+            model=self.model,
             role=self.peers[self.name].get("role", ""),
             up=True,
             context={"used": 0, "limit": 200_000},
@@ -211,7 +212,7 @@ class Node:
         )
         self.publish_state()
         print(f"[{self.name}] listening on {cfg['host']}:{cfg['port']}  "
-              f"role={cfg.get('role', '?')}  model={cfg.get('model', 'mock')}")
+              f"role={cfg.get('role', '?')}  model={self.model}")
         await server.serve()
 
     async def kick_off(self, task: str, to: str) -> None:
