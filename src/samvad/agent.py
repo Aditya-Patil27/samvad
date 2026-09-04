@@ -31,13 +31,22 @@ from samvad.protocol import (
     parent_of,
 )
 
-#: USD per million tokens, (input, output). Unknown models cost nothing, which
-#: is true for the mock and for a local Ollama and honest for anything else --
-#: a guessed rate would quietly corrupt the cost column in every measurement.
+#: USD per million tokens, (input, output). Anthropic first-party API rates.
+#:
+#: These were WRONG in the first version of this file -- Opus 5 was entered at
+#: $15/$75, three times its real price -- because they were written from memory
+#: instead of looked up. Every USD figure in measurement 4 and every running
+#: total on the dashboard is computed from this table, so a wrong row here does
+#: not fail: it produces a confident, plausible, wrong number. Check them
+#: against the published pricing page before trusting a cost result.
+#:
+#: Unknown models cost nothing, which is true for the mock and for a local
+#: Ollama and honest for anything else -- a guessed rate is how this went wrong
+#: the first time.
 MODEL_RATES: dict[str, tuple[float, float]] = {
-    "claude-opus-5": (15.0, 75.0),
-    "claude-sonnet-5": (3.0, 15.0),
-    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-opus-5": (5.00, 25.00),
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-haiku-4-5": (1.00, 5.00),
 }
 
 #: What one call is assumed to cost when deciding whether a branch can afford

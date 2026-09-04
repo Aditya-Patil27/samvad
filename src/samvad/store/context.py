@@ -14,15 +14,30 @@ from typing import Any
 
 BACKPRESSURE_THRESHOLD = 0.9
 
-#: Every model in config/peers.example.yaml. A window this tracker does not
-#: know is not guessed at -- see `limit`.
+#: Context window per model. A window this tracker does not know is not
+#: guessed at -- see `limit`.
+#:
+#: These were WRONG in the first version of this file: 200K was assumed for
+#: every Claude model, when Opus 5 and Sonnet 5 carry 1M. Backpressure trips at
+#: 90% of this number, so the mesh would have started refusing to send full
+#: content at 180K while 820K of window sat unused -- and measurement 4, whose
+#: whole subject is how much context the ref mechanism saves, would have been
+#: measuring the wrong ceiling.
+#:
+#: Note Haiku 4.5 really is 200K. The peers in config/peers.example.yaml are
+#: deliberately heterogeneous, so one node in a four-node mesh has a window
+#: five times smaller than its neighbours -- backpressure exists for exactly
+#: that asymmetry, and a uniform table would have hidden it.
 MODEL_LIMITS: dict[str, int] = {
-    "claude-opus-5": 200_000,
-    "claude-sonnet-5": 200_000,
+    "claude-opus-5": 1_000_000,
+    "claude-sonnet-5": 1_000_000,
     "claude-haiku-4-5": 200_000,
     "ollama:qwen2.5-coder": 32_768,
 }
 
+#: Conservative: an unknown model is assumed to have the SMALLEST window in the
+#: table, not the largest. Over-estimating a window means discovering it is
+#: full mid-task, which no retry fixes.
 DEFAULT_LIMIT = 200_000
 
 
