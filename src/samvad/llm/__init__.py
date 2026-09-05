@@ -8,9 +8,14 @@ config mean something.
 THIS PROJECT RUNS FREE. Two backends cost nothing and both are real:
 
     mock              deterministic canned replies, no inference at all
-    ollama:<model>    a model running locally on the device -- genuinely free,
-                      genuinely an LLM, and the only thing needed for four of
-                      the five measurements
+    ollama:<model>    a model running locally on the device
+    groq:<model>      hosted, free tier, OpenAI-compatible
+    nvidia:<model>    hosted, free tier, OpenAI-compatible
+
+Hosted free tiers matter for measurement 5: it needs an executor and reviewer
+with UNCORRELATED training priors, and a 6GB card holding a 6GB model has no
+room for a second one. A hosted reviewer removes the VRAM constraint and is
+far faster than a laptop GPU.
 
 The paid backend is reachable only by naming it explicitly, and saying so
 raises rather than silently starting to spend.
@@ -21,6 +26,9 @@ import os
 from typing import Any
 
 OLLAMA_PREFIX = "ollama:"
+
+#: Hosted providers, all OpenAI-compatible -- see llm/openai_compat.py.
+HOSTED_PREFIXES = ("groq:", "nvidia:")
 
 #: Names that mean "no inference". Anything falsy lands here too, so a peer
 #: entry with no model at all runs the mock instead of failing at startup.
@@ -36,7 +44,9 @@ def backend_for(model: str | None, **kwargs: Any) -> Any:
 
     Routing:
         ""  / "mock"          -> MockBackend      free, no inference
-        "ollama:qwen3:8b"     -> OllamaBackend    free, local inference
+        "ollama:qwen3:8b"     -> OllamaBackend           free, local
+        "groq:<model>"        -> OpenAICompatBackend     free tier, hosted
+        "nvidia:<model>"      -> OpenAICompatBackend     free tier, hosted
         "claude-opus-5" etc.  -> PaidBackendRefused
 
     The paid path raises with the cost stated rather than returning something
@@ -55,11 +65,18 @@ def backend_for(model: str | None, **kwargs: Any) -> Any:
 
         return OllamaBackend(model=name[len(OLLAMA_PREFIX):] or None, **kwargs)
 
+    if name.lower().startswith(HOSTED_PREFIXES):
+        from samvad.llm.openai_compat import OpenAICompatBackend
+
+        return OpenAICompatBackend(model=name, **kwargs)
+
     raise PaidBackendRefused(
         f"{name!r} is a paid API model and this project is configured free-only.\n"
         f"  Free options:\n"
-        f"    model: mock                 no inference, deterministic\n"
-        f"    model: ollama:qwen3:8b      local inference, free\n"
+        "    model: mock                                no inference\n"
+        "    model: ollama:qwen3:8b                     local inference\n"
+        "    model: groq:llama-3.3-70b-versatile        hosted free tier\n"
+        "    model: nvidia:meta/llama-3.1-70b-instruct  hosted free tier\n"
         f"  To use a paid model deliberately, implement samvad/llm/claude.py and\n"
         f"  set SAMVAD_ALLOW_PAID=1. It is not wired up by default on purpose."
     )
