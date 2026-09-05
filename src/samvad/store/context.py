@@ -14,43 +14,56 @@ from typing import Any
 
 BACKPRESSURE_THRESHOLD = 0.9
 
-#: Context window per model. A window this tracker does not know is not
-#: guessed at -- see `limit`.
+#: Context window per model, in tokens. Backpressure trips at 90% of this, so
+#: a wrong number here does not fail -- it makes the mesh either refuse to send
+#: content it had room for, or fill a window it thought was empty.
 #:
-#: These were WRONG in the first version of this file: 200K was assumed for
-#: every Claude model, when Opus 5 and Sonnet 5 carry 1M. Backpressure trips at
-#: 90% of this number, so the mesh would have started refusing to send full
-#: content at 180K while 820K of window sat unused -- and measurement 4, whose
-#: whole subject is how much context the ref mechanism saves, would have been
-#: measuring the wrong ceiling.
-#:
-#: Note Haiku 4.5 really is 200K. The peers in config/peers.example.yaml are
-#: deliberately heterogeneous, so one node in a four-node mesh has a window
-#: five times smaller than its neighbours -- backpressure exists for exactly
-#: that asymmetry, and a uniform table would have hidden it.
+#: Both directions have already happened in this file. Claude models were
+#: entered at 200K when Opus 5 and Sonnet 5 carry 1M (too small, backpressure
+#: fired early); ollama models carried qwen3's spec-sheet 40,960 when ollama
+#: was actually serving 4096 (too large, backpressure never fired at all).
+#: Look the number up, or derive it -- do not remember it.
 MODEL_LIMITS: dict[str, int] = {
     "claude-opus-5": 1_000_000,
     "claude-sonnet-5": 1_000_000,
+    # Haiku 4.5 really is 200K. config/peers.example.yaml is deliberately
+    # heterogeneous, so one node in a four-node mesh has a window five times
+    # smaller than its neighbours -- backpressure exists for that asymmetry.
     "claude-haiku-4-5": 200_000,
-    # Local models. These are what OLLAMA SERVES, not what the model's spec
-    # sheet claims -- and the two are very different. Ollama defaults to a
-    # 4096-token window regardless of the model's capability, so a table
-    # carrying qwen3's theoretical 40,960 would have been 10x optimistic and
-    # backpressure would never have tripped.
-    #
-    # samvad.llm.ollama.DEFAULT_NUM_CTX is the value actually requested, and
-    # these must stay equal to it. Raise both together, and only as far as the
-    # GPU has VRAM for the larger KV cache.
-    "ollama:qwen2.5-coder": 4_096,
-    "ollama:qwen3:8b": 4_096,
-    "ollama:llama3.2": 4_096,
-    "ollama:deepseek-coder-v2": 4_096,
 }
 
-#: Conservative: an unknown model is assumed to have the SMALLEST window in the
-#: table, not the largest. Over-estimating a window means discovering it is
-#: full mid-task, which no retry fixes.
-DEFAULT_LIMIT = 200_000
+#: Hosted free tiers (groq:, nvidia:) do not publish one number we control, and
+#: providers cap context below the model's native window on free plans. 8K is
+#: deliberately pessimistic: under-estimating means sending refs when full
+#: content would have fit, which is recoverable. Over-estimating means the
+#: request is rejected or silently truncated mid-task, which is not.
+#: Override per peer with ContextTracker(limit=...) once you have measured it.
+HOSTED_DEFAULT_LIMIT = 8_192
+
+#: Anything else. Not the largest window in the table -- the smallest sane one.
+DEFAULT_LIMIT = 8_192
+
+
+def window_for(model: str) -> int:
+    """The window a model is actually being served with.
+
+    Local ollama models are DERIVED, not tabulated: this project sends
+    `num_ctx` explicitly on every request, so the served window is exactly
+    DEFAULT_NUM_CTX and no table can drift away from it. Every previous bug in
+    this file was a table disagreeing with reality; the fix is to stop keeping
+    a table for the one case we control.
+    """
+    name = (model or "").strip()
+
+    if name.startswith("ollama:"):
+        from samvad.llm.ollama import DEFAULT_NUM_CTX
+
+        return DEFAULT_NUM_CTX
+
+    if name.startswith(("groq:", "nvidia:")):
+        return HOSTED_DEFAULT_LIMIT
+
+    return MODEL_LIMITS.get(name, DEFAULT_LIMIT)
 
 
 class ContextTracker:
@@ -77,9 +90,7 @@ class ContextTracker:
         return self._used
 
     def limit(self) -> int:
-        return self._limit if self._limit is not None else MODEL_LIMITS.get(
-            self.model, DEFAULT_LIMIT
-        )
+        return self._limit if self._limit is not None else window_for(self.model)
 
     def observe(self, cost: Any) -> int:
         """Record what a call actually consumed, from the backend's own report.
