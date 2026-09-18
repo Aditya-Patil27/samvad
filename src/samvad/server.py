@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -75,6 +76,8 @@ def make_app(
             return JSONResponse({"error": "unknown sender", "sender": msg.sender}, status_code=403)
 
         if not security.verify(msg, app.state.secret):
+            print(f"[{app.state.agent}] rejected: bad signature from {msg.sender!r} "
+                  f"(message_id={msg.message_id})", file=sys.stderr)
             return JSONResponse({"error": "signature"}, status_code=401)
 
         # THE SEAM: P3 stores (MessageLog.seen), P1 decides. Checked BEFORE

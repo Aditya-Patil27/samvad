@@ -197,8 +197,8 @@ class Node:
             model=self.model,
             role=self.peers[self.name].get("role", ""),
             up=True,
-            context={"used": 0, "limit": 200_000},
-            children=0,
+            context={"used": self.agent.context.used(), "limit": self.agent.context.limit()},
+            children=self.agent.supervisor.active_count,
             budget_usd=max(0.0, float(self.budget["usd"]) - self.log.total_usd()),
         )
 

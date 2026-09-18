@@ -21,6 +21,7 @@ from samvad.clock import LamportClock
 from samvad.protocol import (
     Budget,
     Claim,
+    ContextState,
     Cost,
     Message,
     Performative,
@@ -29,6 +30,7 @@ from samvad.protocol import (
     depth_of,
     parent_of,
 )
+from samvad.store.context import ContextTracker
 from samvad.supervisor import Supervisor
 
 #: USD per million tokens, (input, output). Anthropic first-party API rates.
@@ -78,6 +80,7 @@ class Agent:
         self.clock = clock or LamportClock()
         self.breaker = breaker or CircuitBreaker()
         self.supervisor = Supervisor(agent_path or "unknown")
+        self.context = ContextTracker(model=model or "mock")
 
     # --- the loop ---------------------------------------------------------
 
@@ -237,6 +240,7 @@ class Agent:
             ]
 
         completion = await self.llm.complete(self._prompt(msg))
+        self.context.observe(completion.usage)
         cost_usd = usd_for(completion.usage)
         self.breaker.record(cost_usd)
 
@@ -336,7 +340,7 @@ class Agent:
                 parent=parent_of(me), depth=depth_of(me), max_depth=msg.spawn.max_depth
             ),
             budget=budget or msg.budget,
-            context=msg.context,
+            context=ContextState(used=self.context.used(), limit=self.context.limit()),
             cost=cost,
         )
 
