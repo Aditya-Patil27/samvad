@@ -229,42 +229,27 @@ def test_concurrency_cap_is_eight():
     assert MAX_CONCURRENCY == 8
 
 
-async def test_supervisor_never_exceeds_the_concurrency_cap():
-    """The cap has to be a semaphore in a code path, not a number in a docstring.
+def test_supervisor_never_exceeds_the_concurrency_cap():
+    """The cap has to be enforced in a code path, not a number in a docstring.
 
-    Spawns twice the cap at once and asserts the peak in-flight count never
-    passed it.
+    spawn() is synchronous and rejects outright once the cap is full --
+    agent.py relies on exactly this, catching the ValueError and replying
+    spawn_refused rather than blocking the handler on a semaphore.
     """
-    import asyncio
-
     from samvad.supervisor import MAX_CONCURRENCY, Supervisor
 
-    supervisor = Supervisor()
-    spec = {"role": "executor", "prompt_id": "executor"}
     budget = _make().budget
 
-    if not implemented(supervisor.spawn, spec, budget):
+    if not implemented(Supervisor("probe").spawn, "group", budget):
         pytest.skip("Supervisor.spawn not implemented yet")
 
-    in_flight = 0
-    peak = 0
-    original = supervisor.spawn
+    supervisor = Supervisor("agent_a")
+    for _ in range(MAX_CONCURRENCY):
+        supervisor.spawn("group", budget)
 
-    async def counting_spawn(*args, **kwargs):
-        nonlocal in_flight, peak
-        in_flight += 1
-        peak = max(peak, in_flight)
-        try:
-            return await original(*args, **kwargs)
-        finally:
-            in_flight -= 1
-
-    supervisor.spawn = counting_spawn
-    await asyncio.gather(
-        *(supervisor.spawn(spec, budget) for _ in range(MAX_CONCURRENCY * 2)),
-        return_exceptions=True,
-    )
-    assert peak <= MAX_CONCURRENCY, f"{peak} spawns in flight, cap is {MAX_CONCURRENCY}"
+    assert supervisor.active_count == MAX_CONCURRENCY
+    with pytest.raises(ValueError):
+        supervisor.spawn("group", budget)
 
 
 # --- sandbox ----------------------------------------------------------------

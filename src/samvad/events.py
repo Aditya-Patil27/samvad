@@ -110,6 +110,7 @@ def node_frame(
     agent: str,
     *,
     model: str | None = None,
+    role: str | None = None,
     up: bool | None = None,
     context: Any = None,
     children: int | None = None,
@@ -127,6 +128,10 @@ def node_frame(
     frame: dict[str, Any] = {"type": "node", "agent": str(agent)}
     if model is not None:
         frame["model"] = str(model)
+    if role is not None:
+        # The audit console shows role beside each agent: a reviewer waving
+        # through a claim reads very differently from a planner asserting one.
+        frame["role"] = str(role)
     if up is not None:
         frame["up"] = bool(up)
     if children is not None:

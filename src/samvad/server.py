@@ -11,6 +11,9 @@ Routes:
     GET  /peers        -> the peer table as this node sees it
     GET  /events       -> SSE stream                    (contributed by P4)
     GET  /blob/{hash}  -> artifact bytes                (contributed by P3)
+    GET  /setup        -> peer table + this host's own addresses
+    POST /setup        -> validate and write config/peers.yaml  (LOCALHOST ONLY)
+    GET  /netcheck     -> probe every peer: reachable / refused / timeout
 """
 from __future__ import annotations
 
@@ -23,6 +26,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import ValidationError
 
+from samvad import config as peer_config
 from samvad import security
 from samvad.clock import LamportClock
 from samvad.protocol import PROTOCOL_VERSION, Message
@@ -128,6 +132,84 @@ def make_app(
         if data is None:
             return JSONResponse({"error": "unknown blob", "ref": ref}, status_code=404)
         return Response(content=data, media_type="application/octet-stream")
+
+    @app.get("/setup")
+    async def get_setup() -> dict[str, Any]:
+        """Current peer table plus this machine's own LAN addresses.
+
+        The address you are least likely to get right is your own, and it is
+        the one the node can simply tell you.
+        """
+        saved = peer_config.read_peers()
+        return {
+            "peers": (saved or {}).get("peers") or {
+                name: {"host": "", "port": 8000 + i, "role": "executor", "model": "mock"}
+                for i, name in enumerate(app.state.peers)
+            },
+            "defaults": (saved or {}).get("defaults")
+            or {"max_depth": 3, "budget": {"usd": 0.50, "turns": 12}},
+            "local_addresses": peer_config.local_addresses(),
+            "config_path": str(peer_config.PEERS_PATH),
+            "saved": saved is not None,
+        }
+
+    @app.post("/setup")
+    async def post_setup(request: Request) -> JSONResponse:
+        """Validate a peer table and write config/peers.yaml.
+
+        LOCALHOST ONLY, and that restriction is the point. This endpoint writes
+        a file and the node binds 0.0.0.0, so without it anyone on the same
+        wifi could rewrite where this node sends its traffic -- on shared
+        campus wifi that is a real reach, not a theoretical one. Configuring
+        your own machine from your own browser is the whole use case, so the
+        restriction costs nothing.
+
+        The path is fixed. No filename comes from the request, so there is
+        nothing for a traversal to traverse.
+        """
+        client = request.client.host if request.client else ""
+        if client not in ("127.0.0.1", "::1", "localhost"):
+            return JSONResponse(
+                {"error": "config can only be written from this machine",
+                 "client": client}, status_code=403)
+
+        body = await request.json()
+        try:
+            peers = peer_config.validate_peers(body.get("peers"))
+        except peer_config.ConfigError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+        path = peer_config.write_peers(peers, body.get("defaults"))
+        return JSONResponse({
+            "written": str(path),
+            "peers": peers,
+            "yaml": peer_config.to_yaml(peers, body.get("defaults")),
+            "note": "copy this file to every device -- it must be byte-identical",
+        })
+
+    @app.get("/netcheck")
+    async def netcheck() -> dict[str, Any]:
+        """Probe every peer. refused means the path works; timeout means it does not.
+
+        The distinction is the whole diagnostic: REFUSED is a reachable host
+        with nothing listening yet, which is normal before a peer starts.
+        TIMEOUT on shared wifi is almost always AP/client isolation, and no
+        amount of code fixes that -- you need a different network.
+        """
+        saved = peer_config.read_peers() or {}
+        table = saved.get("peers") or {}
+        results = {}
+        for name, cfg in table.items():
+            host, port = cfg.get("host"), int(cfg.get("port", 8000))
+            if not host:
+                results[name] = {"status": "unset", "host": "", "port": port}
+                continue
+            results[name] = {
+                "status": await peer_config.probe(host, port),
+                "host": host, "port": port,
+                "self": name == app.state.agent,
+            }
+        return {"peers": results, "checked": len(results)}
 
     @app.get("/events")
     async def events() -> StreamingResponse:

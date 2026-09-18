@@ -12,7 +12,6 @@ This is the single most effective hallucination control in the system.
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -30,14 +29,24 @@ from samvad.protocol import (
     depth_of,
     parent_of,
 )
+from samvad.supervisor import Supervisor
 
-#: USD per million tokens, (input, output). Unknown models cost nothing, which
-#: is true for the mock and for a local Ollama and honest for anything else --
-#: a guessed rate would quietly corrupt the cost column in every measurement.
+#: USD per million tokens, (input, output). Anthropic first-party API rates.
+#:
+#: These were WRONG in the first version of this file -- Opus 5 was entered at
+#: $15/$75, three times its real price -- because they were written from memory
+#: instead of looked up. Every USD figure in measurement 4 and every running
+#: total on the dashboard is computed from this table, so a wrong row here does
+#: not fail: it produces a confident, plausible, wrong number. Check them
+#: against the published pricing page before trusting a cost result.
+#:
+#: Unknown models cost nothing, which is true for the mock and for a local
+#: Ollama and honest for anything else -- a guessed rate is how this went wrong
+#: the first time.
 MODEL_RATES: dict[str, tuple[float, float]] = {
-    "claude-opus-5": (15.0, 75.0),
-    "claude-sonnet-5": (3.0, 15.0),
-    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-opus-5": (5.00, 25.00),
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-haiku-4-5": (1.00, 5.00),
 }
 
 #: What one call is assumed to cost when deciding whether a branch can afford
@@ -59,13 +68,16 @@ class Agent:
         self,
         llm: Any = None,
         agent_path: str | None = None,
+        model: str | None = None,
         clock: LamportClock | None = None,
         breaker: CircuitBreaker | None = None,
     ) -> None:
-        self.llm = llm if llm is not None else _default_backend()
+        self.llm = llm if llm is not None else _default_backend(model)
         self.agent_path = agent_path
+        self.model = model
         self.clock = clock or LamportClock()
         self.breaker = breaker or CircuitBreaker()
+        self.supervisor = Supervisor(agent_path or "unknown")
 
     # --- the loop ---------------------------------------------------------
 
@@ -75,9 +87,20 @@ class Agent:
 
         if msg.performative is Performative.SPAWN_REQUEST:
             return self._handle_spawn(msg)
-        if msg.performative in (Performative.TASK_REQUEST, Performative.TASK_RESULT):
+        if msg.performative is Performative.TASK_REQUEST:
             return await self._handle_task(msg)
-        # spawn_ack, child_result, spawn_refused, budget_exhausted, uncertain:
+        if msg.performative is Performative.TASK_RESULT:
+            # A finished result ENDS the exchange. Answering a `complete` with
+            # more work is how two agents ping-pong until the turn budget drains
+            # -- the livelock guard catches it, but only after paying for a
+            # dozen calls that decided nothing. Only work that was sent back for
+            # revision earns another turn.
+            if msg.task_status is TaskStatus.NEEDS_REVISION:
+                return await self._handle_task(msg)
+            return []
+        if msg.performative is Performative.CHILD_RESULT:
+            return self._handle_child_result(msg)
+        # spawn_ack, spawn_refused, budget_exhausted, uncertain:
         # terminal for this agent. Silence is a valid reply -- a protocol that
         # requires an answer to every message never stops talking.
         return []
@@ -109,12 +132,26 @@ class Agent:
         if not all(can_afford(s, ESTIMATED_CALL_USD) for s in slices):
             return [self._refuse(msg, "budget_policy")]
 
+        # Register children with the supervisor for tracking
+        group_id = msg.message_id  # use the spawn request id as group key
+        child_paths: list[str] = []
+        try:
+            for i in range(n):
+                path = self.supervisor.spawn(
+                    group_id, slices[i], parent_message=msg,
+                )
+                child_paths.append(path)
+        except ValueError:
+            return [self._refuse(msg, "at_capacity")]
+
+        self.supervisor.register_group(group_id, msg, n)
+
         return [
             self._reply(
                 msg,
                 Performative.SPAWN_ACK,
                 TaskStatus.IN_PROGRESS,
-                payload={"agent_path": f"{self._me(msg)}/worker_{i + 1}"},
+                payload={"agent_path": child_paths[i]},
                 budget=slices[i],
             )
             for i in range(n)
@@ -127,6 +164,60 @@ class Agent:
             TaskStatus.ABANDONED if reason != "max_depth" else TaskStatus.NEEDS_REVISION,
             payload={"reason": reason},
         )
+
+    def _handle_child_result(self, msg: Message) -> list[Message]:
+        """Route child results through the supervisor for fan-out tracking.
+
+        When all children in a fan-out group have reported, produce a merged
+        child_result to forward upward. Individual results are tracked but not
+        forwarded until the group is complete -- the parent needs the full
+        picture to decide whether the work succeeded.
+        """
+        outcome = self.supervisor.on_child_result(msg)
+
+        if outcome["needs_retry"]:
+            # Retry once: re-send the original task to the same child.
+            # The budget slice is preserved from the original spawn.
+            record = self.supervisor.child_record(msg.sender)
+            if record and record.original_request:
+                return [self._reply(
+                    record.original_request,
+                    Performative.TASK_REQUEST,
+                    TaskStatus.NEEDS_REVISION,
+                    payload=record.original_request.payload,
+                )]
+            return []
+
+        if outcome["group_complete"]:
+            # All siblings reported. Merge results and forward upward.
+            all_results = outcome["all_results"]
+            merged_payload = {
+                "results": [
+                    {
+                        "child": r.sender,
+                        "status": str(r.task_status),
+                        "payload": r.payload,
+                    }
+                    for r in all_results
+                ],
+                "group_id": outcome["group_id"],
+            }
+            # Determine overall status: complete only if ALL children completed
+            any_failed = any(
+                r.task_status is not TaskStatus.COMPLETE for r in all_results
+            )
+            status = TaskStatus.NEEDS_REVISION if any_failed else TaskStatus.COMPLETE
+
+            # Forward to whoever asked for this fan-out
+            group = self.supervisor._groups.get(outcome["group_id"])
+            if group:
+                return [self._reply(
+                    group.parent_message,
+                    Performative.CHILD_RESULT,
+                    status,
+                    payload=merged_payload,
+                )]
+        return []
 
     # --- task work --------------------------------------------------------
 
@@ -264,17 +355,14 @@ def _parse(text: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _default_backend() -> Any:
+def _default_backend(model: str | None = None) -> Any:
     """MOCK_LLM=1 is the default, not the exception.
 
-    All development runs on the mock. Live API calls cost real money on
-    someone's personal key, and this system spawns recursively -- so the
-    expensive backend is the one you have to ask for by name.
+    Selection lives in samvad.llm.default_backend so a peer's `model` string
+    from config/peers.yaml actually chooses the backend. MOCK_LLM still wins
+    over the table: a config naming a real model runs the mock anyway unless
+    someone deliberately turns it off.
     """
-    if os.environ.get("MOCK_LLM", "1") != "0":
-        from samvad.llm.mock import MockBackend
+    from samvad.llm import default_backend
 
-        return MockBackend()
-    from samvad.llm.claude import ClaudeBackend
-
-    return ClaudeBackend()
+    return default_backend(model)
