@@ -103,12 +103,12 @@ Nothing. P1 is the root. This is why P1 is the critical path and why P1 does not
 
 ### Definition of done
 
-- [ ] Two nodes exchange a signed message over LAN; both logs show matching `message_id` and correctly ordered Lamport clocks
-- [ ] A duplicate `message_id` returns the cached response and does **not** trigger a second handler call
-- [ ] A message with a bad signature is rejected with 401 and logged
-- [ ] A message older than the replay window is rejected
-- [ ] `resolve("agent_b/worker_2/checker_1")` routes to peer `agent_b`
-- [ ] `POST /message` returns 202 in under 50 ms while a 30-second LLM call is in flight
+- [x] Two nodes exchange a signed message over LAN; both logs show matching `message_id` and correctly ordered Lamport clocks
+- [x] A duplicate `message_id` returns the cached response and does **not** trigger a second handler call
+- [x] A message with a bad signature is rejected with 401 and logged
+- [x] A message older than the replay window is rejected
+- [x] `resolve("agent_b/worker_2/checker_1")` routes to peer `agent_b`
+- [x] `POST /message` returns 202 in under 50 ms while a 30-second LLM call is in flight
 
 ### Does not touch
 
@@ -168,15 +168,15 @@ A dict-backed fake blob store and `MockLLM`. Do not wait for P3.
 
 ### Definition of done
 
-- [ ] `handle()` on a `task_request` returns a well-formed `task_result` under `MOCK_LLM=1`, no network
-- [ ] A parent spawning 4 children slices its budget so the four slices sum to exactly the parent's
-- [ ] A branch whose slice cannot afford one call returns `spawn_refused`, not a crash
-- [ ] `max_depth` is enforced — a depth-4 spawn under `max_depth: 3` is refused
-- [ ] Concurrency semaphore caps in-flight LLM calls at 8 per node
-- [ ] 429 responses retry with exponential backoff
-- [ ] Killing a parent mid-fan-out reparents orphans; their results still arrive
-- [ ] `run_sandboxed` kills an infinite loop at the timeout and returns a non-zero exit code
-- [ ] A reviewer cannot set `task_status: complete` when `exit_code != 0` — enforced in code, not in the prompt
+- [x] `handle()` on a `task_request` returns a well-formed `task_result` under `MOCK_LLM=1`, no network
+- [x] A parent spawning 4 children slices its budget so the four slices sum to exactly the parent's
+- [x] A branch whose slice cannot afford one call returns `spawn_refused`, not a crash
+- [x] `max_depth` is enforced — a depth-4 spawn under `max_depth: 3` is refused
+- [ ] Concurrency semaphore caps in-flight LLM calls at 8 per node — `Supervisor.spawn()` caps tracked children at 8 and is correctly tested, but nothing caps concurrent `llm.complete()` calls directly; not the same guarantee yet
+- [x] 429 responses retry with exponential backoff
+- [ ] Killing a parent mid-fan-out reparents orphans; their results still arrive — `reparent()`/`orphans_of()` are implemented and unit-tested, but nothing in `node.py` calls them; there's no peer-death detection wired up yet (see note below)
+- [x] `run_sandboxed` kills an infinite loop at the timeout and returns a non-zero exit code
+- [x] A reviewer cannot set `task_status: complete` when `exit_code != 0` — enforced in code, not in the prompt
 
 That last one is the anti-hallucination guarantee. It is a code path, not a request to the model.
 
@@ -231,12 +231,12 @@ Idempotency is split: **P3 stores** (`seen()`), **P1 decides** (return the cache
 
 ### Definition of done
 
-- [ ] The same bytes stored twice produce one blob and the same ref
-- [ ] `GET /blob/{hash}` returns bytes; an unknown hash returns 404
-- [ ] Killing an agent mid-conversation and restarting replays the log and resumes correctly
-- [ ] `used()` matches the API's reported input tokens within 5%
-- [ ] `should_send_full()` returns `False` when the peer reports above 90%
-- [ ] A conversation exceeding the hot-tier limit compacts without losing the `root_task`
+- [x] The same bytes stored twice produce one blob and the same ref
+- [ ] `GET /blob/{hash}` returns bytes; an unknown hash returns 404 — route exists and the store-level `.get()→None` path is tested, but no test calls it over HTTP yet
+- [ ] Killing an agent mid-conversation and restarting replays the log and resumes correctly — `MessageLog.replay()` works and is tested in isolation, but `node.py` never calls it on boot
+- [x] `used()` matches the API's reported input tokens within 5% — structural: `ContextTracker.observe()` stores the backend's reported figure verbatim, now wired into `Agent`/`node.py` (2026-09-18)
+- [x] `should_send_full()` returns `False` when the peer reports above 90%
+- [ ] A conversation exceeding the hot-tier limit compacts without losing the `root_task` — `Compactor` implements this correctly but has zero tests exercising it
 
 ### Does not touch
 
@@ -278,12 +278,12 @@ P4 has nothing real to observe until week 2. So P4's week 1 is:
 
 ### Definition of done
 
-- [ ] `netcheck.py` reports pass/fail for every peer pair, run from any node
-- [ ] Dashboard shows live message flow, per-node context usage, and a running USD total
-- [ ] Dashboard renders from synthetic data with no node running, and from `/events` when one is
-- [ ] All five experiments run from a single command and emit CSV
-- [ ] Every plot in the report regenerates from that CSV — no hand-made numbers
-- [ ] CI runs contract tests on every PR
+- [x] `netcheck.py` reports pass/fail for every peer pair, run from any node
+- [x] Dashboard shows live message flow, per-node context usage, and a running USD total — context/children were hardcoded to zero in `node.py`, now wired to real `ContextTracker`/`Supervisor` state (2026-09-18)
+- [x] Dashboard renders from synthetic data with no node running, and from `/events` when one is
+- [ ] All five experiments run from a single command and emit CSV — `context_dedup.py` and `grounding.py` are done with CSVs in `results/`; `transport.py`, `topology.py`, `disagreement.py` are still `NotImplementedError`
+- [ ] Every plot in the report regenerates from that CSV — no hand-made numbers — no `docs/RESULTS.md` or plotting code exists yet
+- [x] CI runs contract tests on every PR
 
 ### Does not touch
 
