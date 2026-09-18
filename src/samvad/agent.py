@@ -29,6 +29,7 @@ from samvad.protocol import (
     depth_of,
     parent_of,
 )
+from samvad.supervisor import Supervisor
 
 #: USD per million tokens, (input, output). Anthropic first-party API rates.
 #:
@@ -76,6 +77,7 @@ class Agent:
         self.model = model
         self.clock = clock or LamportClock()
         self.breaker = breaker or CircuitBreaker()
+        self.supervisor = Supervisor(agent_path or "unknown")
 
     # --- the loop ---------------------------------------------------------
 
@@ -96,7 +98,9 @@ class Agent:
             if msg.task_status is TaskStatus.NEEDS_REVISION:
                 return await self._handle_task(msg)
             return []
-        # spawn_ack, child_result, spawn_refused, budget_exhausted, uncertain:
+        if msg.performative is Performative.CHILD_RESULT:
+            return self._handle_child_result(msg)
+        # spawn_ack, spawn_refused, budget_exhausted, uncertain:
         # terminal for this agent. Silence is a valid reply -- a protocol that
         # requires an answer to every message never stops talking.
         return []
@@ -128,12 +132,26 @@ class Agent:
         if not all(can_afford(s, ESTIMATED_CALL_USD) for s in slices):
             return [self._refuse(msg, "budget_policy")]
 
+        # Register children with the supervisor for tracking
+        group_id = msg.message_id  # use the spawn request id as group key
+        child_paths: list[str] = []
+        try:
+            for i in range(n):
+                path = self.supervisor.spawn(
+                    group_id, slices[i], parent_message=msg,
+                )
+                child_paths.append(path)
+        except ValueError:
+            return [self._refuse(msg, "at_capacity")]
+
+        self.supervisor.register_group(group_id, msg, n)
+
         return [
             self._reply(
                 msg,
                 Performative.SPAWN_ACK,
                 TaskStatus.IN_PROGRESS,
-                payload={"agent_path": f"{self._me(msg)}/worker_{i + 1}"},
+                payload={"agent_path": child_paths[i]},
                 budget=slices[i],
             )
             for i in range(n)
@@ -146,6 +164,60 @@ class Agent:
             TaskStatus.ABANDONED if reason != "max_depth" else TaskStatus.NEEDS_REVISION,
             payload={"reason": reason},
         )
+
+    def _handle_child_result(self, msg: Message) -> list[Message]:
+        """Route child results through the supervisor for fan-out tracking.
+
+        When all children in a fan-out group have reported, produce a merged
+        child_result to forward upward. Individual results are tracked but not
+        forwarded until the group is complete -- the parent needs the full
+        picture to decide whether the work succeeded.
+        """
+        outcome = self.supervisor.on_child_result(msg)
+
+        if outcome["needs_retry"]:
+            # Retry once: re-send the original task to the same child.
+            # The budget slice is preserved from the original spawn.
+            record = self.supervisor.child_record(msg.sender)
+            if record and record.original_request:
+                return [self._reply(
+                    record.original_request,
+                    Performative.TASK_REQUEST,
+                    TaskStatus.NEEDS_REVISION,
+                    payload=record.original_request.payload,
+                )]
+            return []
+
+        if outcome["group_complete"]:
+            # All siblings reported. Merge results and forward upward.
+            all_results = outcome["all_results"]
+            merged_payload = {
+                "results": [
+                    {
+                        "child": r.sender,
+                        "status": str(r.task_status),
+                        "payload": r.payload,
+                    }
+                    for r in all_results
+                ],
+                "group_id": outcome["group_id"],
+            }
+            # Determine overall status: complete only if ALL children completed
+            any_failed = any(
+                r.task_status is not TaskStatus.COMPLETE for r in all_results
+            )
+            status = TaskStatus.NEEDS_REVISION if any_failed else TaskStatus.COMPLETE
+
+            # Forward to whoever asked for this fan-out
+            group = self.supervisor._groups.get(outcome["group_id"])
+            if group:
+                return [self._reply(
+                    group.parent_message,
+                    Performative.CHILD_RESULT,
+                    status,
+                    payload=merged_payload,
+                )]
+        return []
 
     # --- task work --------------------------------------------------------
 
