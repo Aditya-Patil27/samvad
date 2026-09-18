@@ -572,10 +572,14 @@ function live() {
   es.onerror = () => { es.close(); demo(); };
 }
 
-/* Synthetic run so the console renders before any node exists. Mirrors the
-   scenario in experiments/fixtures.py -- port from there once /events is
-   mounted. Carries claims deliberately: an audit view with no evidence to
-   audit demonstrates nothing. */
+/* Synthetic run so the console renders before any node exists. Ported from
+   experiments/fixtures.py's scripted_run() -- same 16-step scenario (the
+   three-lens fan-out at agent_c, then agent_b dying mid-task with its
+   orphans reparented to agent_a), kept in sync by hand since this file
+   can't import Python; tests/test_fixtures.py pins the Python side exactly,
+   so drift shows up there even though nothing here can check it. Carries
+   claims deliberately: an audit view with no evidence to audit demonstrates
+   nothing. */
 function demo() {
   $("mode").textContent = "synthetic";
   $("hint").textContent = "no /events — synthetic run, not measured data";
@@ -602,6 +606,11 @@ function demo() {
       payload: { agent_path: "agent_b/worker_1" },
       spawn: { parent: "agent_b", depth: 1, max_depth: 3 },
       budget: { usd_remaining: .21, turns_remaining: 6 } },
+    { lamport: 16, sender: "agent_b", receiver: "agent_b", performative: "spawn_ack",
+      task_status: "in_progress", cost: { usd: .0011, model: "claude-opus-5" },
+      payload: { agent_path: "agent_b/worker_2" },
+      spawn: { parent: "agent_b", depth: 1, max_depth: 3 },
+      budget: { usd_remaining: .21, turns_remaining: 6 } },
     { lamport: 18, sender: "agent_d", receiver: "agent_a", performative: "task_result",
       task_status: "complete", cost: { usd: .0009, model: "claude-haiku-4-5" },
       payload: { result: "8 tests written", exit_code: 0 },
@@ -610,30 +619,52 @@ function demo() {
       claims: [C("all 8 tests pass", "pytest -q: 8 passed", "test_output")] },
     { lamport: 20, sender: "agent_b", receiver: "agent_a", performative: "task_result",
       task_status: "complete", cost: { usd: .0044, model: "claude-opus-5" },
-      payload: { result: "implementation complete", exit_code: 0 },
+      payload: { result: "implementation complete (2 workers)", exit_code: 0 },
       artifacts: [{ ref: "sha256:3b71ee02" + "0".repeat(56), kind: "python_source",
                     summary: "binary search impl, 40 lines", tokens: 412 }],
       claims: [C("handles the empty list", "test_empty passed", "test_output"),
                C("the helper already exists", "read from src/util.py:41", "file_content")] },
     { lamport: 21, sender: "agent_a", receiver: "agent_c", performative: "task_request",
       task_status: "pending", cost: { usd: .0007, model: "claude-opus-5" },
-      payload: { subtask: "review both artifacts" } },
-    { lamport: 26, sender: "agent_c", receiver: "agent_a", performative: "task_result",
+      payload: { subtask: "review both artifacts", constraints: ["three-lens panel"] } },
+    { lamport: 23, sender: "agent_c", receiver: "agent_c", performative: "spawn_ack",
+      task_status: "in_progress", cost: { usd: .0003, model: "ollama:qwen2.5-coder" },
+      payload: { agent_path: "agent_c/verifier_1", lens: "correctness" },
+      spawn: { parent: "agent_c", depth: 1, max_depth: 3 },
+      budget: { usd_remaining: .14, turns_remaining: 5 } },
+    { lamport: 24, sender: "agent_c", receiver: "agent_c", performative: "spawn_ack",
+      task_status: "in_progress", cost: { usd: .0003, model: "ollama:qwen2.5-coder" },
+      payload: { agent_path: "agent_c/verifier_2", lens: "edge cases" },
+      spawn: { parent: "agent_c", depth: 1, max_depth: 3 },
+      budget: { usd_remaining: .14, turns_remaining: 5 } },
+    { lamport: 25, sender: "agent_c", receiver: "agent_c", performative: "spawn_ack",
+      task_status: "in_progress", cost: { usd: .0003, model: "ollama:qwen2.5-coder" },
+      payload: { agent_path: "agent_c/verifier_3", lens: "execution" },
+      spawn: { parent: "agent_c", depth: 1, max_depth: 3 },
+      budget: { usd_remaining: .14, turns_remaining: 5 } },
+    { lamport: 28, sender: "agent_c", receiver: "agent_a", performative: "task_result",
       task_status: "needs_revision", cost: { usd: .0021, model: "ollama:qwen2.5-coder" },
       payload: { result: "overflow on large midpoint", exit_code: 1 },
       claims: [C("midpoint can overflow", "agent_b reported the bound", "peer_report"),
                C("this is idiomatic Python", "the model believes so", "model_prior")] },
-    { lamport: 28, sender: "agent_a", receiver: "agent_b", performative: "task_request",
+    { lamport: 30, sender: "agent_a", receiver: "agent_b", performative: "task_request",
       task_status: "in_progress", cost: { usd: .0033, model: "claude-opus-5" },
       payload: { subtask: "fix the overflow" } },
-    { lamport: 31, sender: "agent_b", receiver: "agent_a", performative: "uncertain",
-      task_status: "uncertain", note: "agent_b down",
-      payload: { question: "use // 2 or >> 1?", options: ["floor div", "shift"] } },
+    { lamport: 31, sender: "agent_b", receiver: "agent_b", performative: "task_result",
+      task_status: "abandoned", note: "✕ AGENT_B DOWN", down: true,
+      payload: { result: "host unreachable", exit_code: 137 } },
     { lamport: 33, sender: "agent_b", receiver: "agent_a", performative: "child_result",
-      task_status: "in_progress", payload: { result: "orphans reparented", summary: "2 children" } },
-    { lamport: 35, sender: "agent_a", receiver: "agent_d", performative: "spawn_refused",
-      task_status: "abandoned", payload: { reason: "budget_policy" },
-      budget: { usd_remaining: 0, turns_remaining: 0 } }
+      task_status: "in_progress", note: "orphans reparented", dashed: true,
+      payload: { result: "parent lost", summary: "2 orphans",
+                 reparented_from: "agent_b", reparented_to: "agent_a" },
+      claims: [C("both workers were still running", "supervisor.active_children() at time of death", "test_output")] },
+    { lamport: 35, sender: "agent_a", receiver: "agent_d", performative: "task_request",
+      task_status: "in_progress", cost: { usd: .0026, model: "claude-haiku-4-5" },
+      payload: { subtask: "fix the overflow (reassigned from agent_b)" } },
+    { lamport: 38, sender: "agent_d", receiver: "agent_a", performative: "task_result",
+      task_status: "complete", cost: { usd: .0018, model: "claude-haiku-4-5" },
+      payload: { result: "overflow fixed: lo + (hi - lo) // 2", exit_code: 0 },
+      claims: [C("no longer overflows", "test_overflow_bound passed", "test_output")] }
   ];
 
   let i = 0;
@@ -644,10 +675,21 @@ function demo() {
                 message_id: `synthetic-${String(i).padStart(2, "0")}`,
                 timestamp: new Date().toISOString(),
                 context: { used: 2000 + i * 3200, limit: 200000 }, ...m });
-    if (m.note === "agent_b down") onNode({ type: "node", agent: "agent_b", up: false });
-    else {
-      const p = peerOf(m.sender), n = state.nodes[p];
-      onNode({ type: "node", agent: p, context: { used: n.used + 3200 + i * 700, limit: n.limit },
+    const p = peerOf(m.sender), n = state.nodes[p];
+    if (m.down) {
+      // The peer dies mid-fan-out: down and stripped of its (about to be
+      // reparented) children in the same frame the dashboard sees it go dark.
+      onNode({ type: "node", agent: p, up: false, children: 0 });
+    } else if (m.note === "orphans reparented") {
+      // The grandparent adopts both of the dead peer's in-flight children --
+      // P2's supervision guarantee, made visible in the roster.
+      const a = state.nodes.agent_a;
+      onNode({ type: "node", agent: "agent_a", children: a.children + 2,
+               context: { used: a.used + 3200 + i * 700, limit: a.limit } });
+    } else {
+      onNode({ type: "node", agent: p,
+               children: n.children + (m.performative === "spawn_ack" ? 1 : 0),
+               context: { used: n.used + 3200 + i * 700, limit: n.limit },
                budget_usd: Math.max(0, n.budget - (m.cost?.usd || 0) * 12) });
     }
     setTimeout(step, 700);
