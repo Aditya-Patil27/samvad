@@ -6,6 +6,7 @@ An LLM call takes 5-60s; a synchronous reply would leave the caller blocked
 until it timed out. Replies arrive later as new inbound messages.
 
 Routes:
+    GET  /             -> the dashboard, so its /events is same-origin
     POST /message      -> 202 {"accepted": message_id}
     GET  /health       -> {"agent", "lamport", "children", "budget_usd"}
     GET  /peers        -> the peer table as this node sees it
@@ -21,10 +22,11 @@ import asyncio
 import os
 import sys
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import ValidationError
 
 from samvad import config as peer_config
@@ -35,6 +37,13 @@ from samvad.store.blobs import BlobStore
 from samvad.store.log import MessageLog
 
 DEFAULT_PEERS = ("agent_a", "agent_b", "agent_c", "agent_d")
+
+#: The dashboard, served from the node so its relative `EventSource("/events")`
+#: resolves to a real stream. Opened as a file:// URL it cannot reach any node,
+#: falls back to its synthetic run, and labels itself "not measured data" --
+#: which during a demo reads as the system being faked rather than the page
+#: being opened wrong. Repo root, next to src/: server.py -> samvad -> src -> .
+DASHBOARD_HTML = Path(__file__).resolve().parents[2] / "dashboard" / "index.html"
 
 
 def make_app(
@@ -213,6 +222,19 @@ def make_app(
                 "self": name == app.state.agent,
             }
         return {"peers": results, "checked": len(results)}
+
+    @app.get("/")
+    async def dashboard() -> Response:
+        """The dashboard itself, so `/events` below is same-origin.
+
+        A 404 here rather than a raised error: a node whose checkout has no
+        dashboard/ is still a working node, and losing the inbox because a
+        static file is missing would be the wrong trade.
+        """
+        if not DASHBOARD_HTML.is_file():
+            return JSONResponse({"error": f"dashboard not found at {DASHBOARD_HTML}"},
+                                status_code=404)
+        return FileResponse(DASHBOARD_HTML, media_type="text/html")
 
     @app.get("/events")
     async def events() -> StreamingResponse:

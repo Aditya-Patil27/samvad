@@ -98,9 +98,13 @@ pytest tests/            # everything
 MOCK_LLM=1 python -m samvad.node --config config/peers.yaml --as agent_a
 python scripts/netcheck.py --peer 192.168.1.42:8000      # LAN reachability (no config needed)
 python scripts/netcheck.py --peers config/peers.yaml     # ...or from the peer table
-python -m experiments.transport                          # measurement 1
-start dashboard/index.html                               # renders on synthetic data
+python -m experiments.transport --conditions inproc,loopback --repeat 20   # measurement 1
+http://127.0.0.1:8000/                                   # dashboard, live off a running node
+start dashboard/index.html                               # no node: falls back to synthetic
 ```
+
+The dashboard's `/events` is relative, so it only goes live when it is served
+**by a node**. Opened as a file it renders the synthetic run and says so.
 
 ---
 
