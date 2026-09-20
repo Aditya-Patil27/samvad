@@ -176,6 +176,40 @@ MOCK_LLM=1 python -m pytest -q                    # 317 passing — worth showin
       measured data" on the projector
 - [ ] `ollama list` shows the models pulled; run one warm-up prompt
 
+### The whole demo is one command
+
+```bash
+python scripts/demo.py             # local Ollama models
+python scripts/demo.py --mock      # fixed replies, no inference -- the fallback
+```
+
+It starts all four nodes (each in its own window, so the audience sees four
+machines), then shows a menu:
+
+```
+ 1  start all four nodes          5  restart agent_b   (beat 5)
+ 2  send one task     (beat 2)    6  health of all four
+ 3  fan out to 3      (beat 3)    7  open the dashboard
+ 4  kill agent_b      (beat 4)    q  stop everything and quit
+```
+
+Press **1, 2, 3, 4, 5** in that order. After each one it prints the line to say
+out loud, so nobody has to hold the runbook while standing up. `q` stops every
+node it started. Logs go to `.demo/`, and every node gets `--db` automatically —
+the flag beat 5 depends on and the easiest one to forget.
+
+Two guards are built in, both found by rehearsing:
+
+- **Beat 3 waits for the children to actually exist** before telling you to speak,
+  and says `agent_a is now tracking 3 children on agent_b`.
+- **Beat 4 refuses to kill** while agent_a tracks no children, because with nothing
+  to reparent the beat does nothing and looks broken. Run 3 first.
+
+Verified end to end tonight: `reparented 3 orphan(s)`, then on restart
+`replayed 4 messages; lamport resumes at 6`.
+
+If you prefer the terminals by hand, or something goes wrong with the script:
+
 ### Starting it — four terminals, in this order
 
 `SAMVAD_SECRET` must be **identical in all four terminals** or every message fails
@@ -232,11 +266,11 @@ reparent line. `Node._reparented` is never cleared, so orphans already adopted a
 correctly not moved twice. **If you rehearse the kill, restart every node before the
 real thing.**
 
-**3 · The kill takes about 25 seconds, not six.** This is the most important number
-on this page. [DEMO.md](DEMO.md) says six — that was three probes at two seconds.
-Measured tonight on Windows loopback: the peer greyed out at **t = 26.4 s** after
-the kill. `PROBE_TIMEOUT` is 5 s and three consecutive failures are needed, so a
-probe that times out rather than being refused costs 3 × (5 + 2) ≈ 21 s.
+**3 · The kill takes 10–30 seconds, not six.** [DEMO.md](DEMO.md) says six — that
+was three probes at two seconds. Measured over several runs tonight: **13 s** and
+**26 s**. `PROBE_TIMEOUT` is 5 s and three consecutive failures are needed, so a
+probe that times out rather than being refused costs up to 3 × (5 + 2) ≈ 21 s.
+`scripts/demo.py` prints the elapsed time when it fires, so you are not guessing.
 
 Both the terminal line and the dashboard strip do arrive. Plan the narration for
 **half a minute of silence** — explain the three-failure guard while you wait, and
@@ -260,7 +294,7 @@ at all.**
 | 1 | **The claim** (1 min) | Aditya | `GET /health` on four ports. Four processes, four clocks, nothing shared. *"Most multi-agent demos are objects calling methods in one process. Every message you are about to see is signed and crosses a socket."* |
 | 2 | **One task end to end** (2 min) | Tejas drives, Samarth narrates | Office view: envelopes flying desk to desk, cost climbing, per-node context. Point at the **Lamport column ordering the log correctly** while the wall clocks disagree |
 | 3 | **Fan-out and budget** (1.5 min) | Samarth | The planner splits the work; executors run in parallel. Show the parent's slice divided among children, summing to the parent's. *"A branch that cannot afford one call cannot spawn. Recursion terminates by running out of money, not by hitting a counter."* |
-| 4 | **Kill a peer** (1.5 min) — the money shot | Aditya kills, Samarth narrates | Close `agent_b`'s terminal visibly. **It takes about 25 seconds** (measured, see finding 3) — three consecutive failed probes at a 5 s timeout, because one dropped packet is not a dead node. Fill the pause: it is the guard working, not the demo hanging. Watch for `agent_b is down -- reparented N orphan(s)` |
+| 4 | **Kill a peer** (1.5 min) — the money shot | Aditya kills, Samarth narrates | Press **4** (or close `agent_b`'s window). **It takes 10–30 seconds** (measured, see finding 3) — three consecutive failed probes at a 5 s timeout, because one dropped packet is not a dead node. Fill the pause: it is the guard working, not the demo hanging. Watch for `agent_b is down -- reparented N orphan(s)` |
 | 5 | **Restart and resume** (1 min) | Sakshant | Restart the killed node **on the same `--db`**. It prints `replayed N messages; lamport resumes at M`. *"A node that restarts at zero reorders its own history."* Scope it honestly: this is restart-and-resume, not full partition-and-reconcile |
 | 6 | **The numbers** (1 min) | Tejas | The measured table below |
 

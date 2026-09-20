@@ -78,6 +78,38 @@ def post(url: str, body: dict[str, Any]) -> tuple[int, str]:
         sys.exit(f"{url} unreachable: {e.reason}. Is that node running?")
 
 
+def send(kind: str, *, sender: str, to: str, task: str, fan_out: int = 3,
+         peers: dict[str, Any], secret: str, max_depth: int = 3,
+         lamport: int | None = None, conversation: str | None = None) -> int:
+    """Sign and post one message. Returns the HTTP status.
+
+    Shared with scripts/demo.py so there is one implementation of what a
+    demo-driven message looks like, not two that drift apart.
+    """
+    host, port = endpoint(peers, to)
+    if lamport is None:
+        from_host, from_port = endpoint(peers, sender)
+        lamport = current_lamport(from_host, from_port) + 1
+
+    if kind == "spawn":
+        performative = Performative.SPAWN_REQUEST
+        payload: dict[str, Any] = {"fan_out": max(1, fan_out), "subtask": task}
+    else:
+        performative = Performative.TASK_REQUEST
+        payload = {"subtask": task, "constraints": []}
+
+    msg = new_message(sender, to, performative, task, lamport=lamport,
+                      payload=payload, conversation_id=conversation,
+                      max_depth=max_depth)
+    msg.sig = security.sign(msg, secret)
+
+    status, body = post(f"http://{host}:{port}/message", msg.model_dump(mode="json"))
+    print(f"{performative.value} {sender} -> {to}  lamport={lamport}  "
+          f"conversation={msg.conversation_id}")
+    print(f"  {status} {body}")
+    return status
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         prog="python scripts/demo_drive.py",
@@ -100,29 +132,10 @@ def main() -> None:
               "nodes started without one either", file=sys.stderr)
 
     peers, _, max_depth = load_config(a.config if Path(a.config).exists() else None)
-    host, port = endpoint(peers, a.to)
 
-    lamport = a.lamport
-    if lamport is None:
-        from_host, from_port = endpoint(peers, a.sender)
-        lamport = current_lamport(from_host, from_port) + 1
-
-    if a.kind == "spawn":
-        performative = Performative.SPAWN_REQUEST
-        payload = {"fan_out": max(1, a.fan_out), "subtask": a.task}
-    else:
-        performative = Performative.TASK_REQUEST
-        payload = {"subtask": a.task, "constraints": []}
-
-    msg = new_message(a.sender, a.to, performative, a.task,
-                      lamport=lamport, payload=payload,
-                      conversation_id=a.conversation, max_depth=max_depth)
-    msg.sig = security.sign(msg, secret)
-
-    status, body = post(f"http://{host}:{port}/message", msg.model_dump(mode="json"))
-    print(f"{performative.value} {a.sender} -> {a.to}  lamport={lamport}  "
-          f"conversation={msg.conversation_id}")
-    print(f"  {status} {body}")
+    status = send(a.kind, sender=a.sender, to=a.to, task=a.task, fan_out=a.fan_out,
+                  peers=peers, secret=secret, max_depth=max_depth,
+                  lamport=a.lamport, conversation=a.conversation)
 
     # 202 is the only success. A 401 means the secrets differ, which is the
     # single most common reason a demo node silently ignores everything.
