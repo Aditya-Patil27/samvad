@@ -19,6 +19,7 @@ from uuid import uuid4
 from samvad.budget import CircuitBreaker, can_afford, slice_budget
 from samvad.clock import LamportClock
 from samvad.protocol import (
+    AGENT_PATH,
     Budget,
     Claim,
     ContextState,
@@ -103,10 +104,37 @@ class Agent:
             return []
         if msg.performative is Performative.CHILD_RESULT:
             return self._handle_child_result(msg)
-        # spawn_ack, spawn_refused, budget_exhausted, uncertain:
-        # terminal for this agent. Silence is a valid reply -- a protocol that
-        # requires an answer to every message never stops talking.
+        if msg.performative is Performative.SPAWN_ACK:
+            self._track_remote_child(msg)
+            return []
+        # spawn_refused, budget_exhausted, uncertain: terminal for this agent.
+        # Silence is a valid reply -- a protocol that requires an answer to
+        # every message never stops talking.
         return []
+
+    def _track_remote_child(self, msg: Message) -> None:
+        """A peer confirmed it started a child for us. Record it now.
+
+        This is the only moment we are told that child exists: `_handle_spawn`
+        answers a spawn_request with one spawn_ack per child, carrying the
+        child's path in `payload['agent_path']`. Once the peer holding it dies
+        there is nobody left to ask, so a grandparent that did not record the
+        ack can never adopt the orphan -- which is exactly why the kill-a-peer
+        beat did not work while this was a no-op.
+
+        No new envelope field: the path is already in `payload` (CLAUDE.md #3).
+
+        The ack arrives off the wire, so its payload is validated rather than
+        trusted. A malformed one from a half-written peer is dropped, not
+        raised on -- losing one child record is recoverable, losing the node is
+        not.
+        """
+        child_path = msg.payload.get("agent_path")
+        if not isinstance(child_path, str) or not AGENT_PATH.match(child_path):
+            return
+        # reply_to points at the spawn_request, which _handle_spawn uses as the
+        # fan-out group id -- so an adopted orphan lands back in its own group.
+        self.supervisor.adopt(child_path, msg.reply_to or msg.conversation_id, msg.budget)
 
     # --- spawning ---------------------------------------------------------
 

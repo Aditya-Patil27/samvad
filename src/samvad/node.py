@@ -11,6 +11,7 @@ import asyncio
 import os
 import socket
 import sys
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,15 @@ DEFAULT_PEERS: dict[str, dict[str, Any]] = {
 }
 DEFAULT_BUDGET = {"usd": 0.50, "turns": 12}
 DEFAULT_MAX_DEPTH = 3
+
+#: How often each peer is probed. Fast enough that a killed laptop is visible
+#: within the beat it is killed in; slow enough not to be its own traffic.
+PEER_POLL_SECONDS = 2.0
+
+#: Consecutive failed probes before a peer counts as dead. Campus wifi drops
+#: packets, and reparenting a live peer's children is worse than reacting a few
+#: seconds late -- so one missed probe is never enough.
+PEER_DEATH_THRESHOLD = 3
 
 
 def load_config(path: str | None) -> tuple[dict[str, Any], dict[str, Any], int]:
@@ -95,7 +105,10 @@ def new_message(
 class Node:
     """One agent, its store, its transport, and the HTTP server around them."""
 
-    def __init__(self, name: str, config: str | None = None, db: str | None = None) -> None:
+    def __init__(
+        self, name: str, config: str | None = None, db: str | None = None,
+        probe: Callable[[str, int], Awaitable[str]] | None = None,
+    ) -> None:
         self.name = name
         self.peers, self.budget, self.max_depth = load_config(config)
         if name not in self.peers:
@@ -116,6 +129,16 @@ class Node:
         self.model = self.peers[name].get("model", "mock")
         self.agent = Agent(agent_path=name, clock=self.clock, model=self.model)
         self.transport = LanTransport(self.peers, secret=self.secret)
+
+        # Peer liveness. Injectable so the failover contract test can drive
+        # death without unplugging anything.
+        from samvad import config as peer_config
+
+        self._probe = probe or peer_config.probe
+        self._peer_failures: dict[str, int] = {}
+        self._peer_down: set[str] = set()
+        self._reparented: set[str] = set()
+
         self.app = make_app(
             self.inbox,
             agent=name,
@@ -191,7 +214,122 @@ class Node:
 
         self.publish_state()
 
+    # --- surviving a peer that dies ---------------------------------------
+
+    def peers_to_watch(self) -> tuple[str, ...]:
+        """Every peer but this one. A node probing itself proves nothing."""
+        return tuple(p for p in self.peers if p != self.name)
+
+    def observe_peer(self, peer: str, status: str) -> bool:
+        """Record one probe result. True only on the transition into dead.
+
+        Returning True exactly once per death is what makes the watcher safe to
+        run on a timer: reparenting is triggered by the edge, not by the state,
+        so a peer that stays down does not re-trigger it every two seconds.
+        """
+        if status == "reachable":
+            self._peer_failures.pop(peer, None)
+            if peer in self._peer_down:
+                self._peer_down.discard(peer)
+                BUS.publish_node(peer, up=True)
+                print(f"[{self.name}] {peer} is back", file=sys.stderr)
+            return False
+
+        if peer in self._peer_down:
+            return False
+
+        failures = self._peer_failures.get(peer, 0) + 1
+        self._peer_failures[peer] = failures
+        if failures < PEER_DEATH_THRESHOLD:
+            return False
+
+        self._peer_down.add(peer)
+        # Published here rather than in on_peer_down: a peer with no children
+        # to reparent is still a peer that went away, and the dashboard has to
+        # grey it out either way. That strip is the kill-a-peer beat's visual.
+        BUS.publish_node(peer, up=False)
+        return True
+
+    def on_peer_down(self, peer: str) -> list[str]:
+        """Reparent the dead peer's unfinished children to this node.
+
+        docs/DEMO.md: "Orphans reparent to the grandparent. In-flight results
+        still arrive. The task completes." All three fall out of this:
+
+        * `orphans_of` finds the children this node learned about from their
+          spawn_acks, skipping any that already delivered.
+        * `reparent` drops the dead parent's ownership record, `adopt` takes it
+          up here -- carrying the group id and budget slice across, because the
+          slice is what bounds the orphan's own recursion.
+        * Paths are NOT rewritten. Routing is by address prefix, so a result
+          already in flight from `agent_b/worker_1` still lands here, and
+          rewriting the path would invalidate its signature anyway.
+
+        Idempotent: a path already moved is never moved twice.
+        """
+        supervisor = self.agent.supervisor
+        orphans = [p for p in supervisor.orphans_of(peer) if p not in self._reparented]
+        if not orphans:
+            return []
+
+        records = {p: supervisor.child_record(p) for p in orphans}
+        moved = supervisor.reparent(orphans, to=self.name)
+        for path in moved:
+            record = records[path]
+            if record is not None:
+                supervisor.adopt(path, record.group_id, record.budget_slice)
+        self._reparented.update(moved)
+
+        print(f"[{self.name}] {peer} is down -- reparented {len(moved)} orphan(s) "
+              f"to {self.name}: {', '.join(moved)}", file=sys.stderr)
+        self.publish_state()
+        return moved
+
+    async def _watch_peers(self) -> None:
+        """Probe every peer on a timer; reparent on the transition into dead.
+
+        Never raises: this runs for the life of the node, and a watcher that
+        dies on one bad probe would take the demo's most important behaviour
+        with it, silently.
+        """
+        while True:
+            await asyncio.sleep(PEER_POLL_SECONDS)
+            for peer in self.peers_to_watch():
+                cfg = self.peers[peer]
+                try:
+                    status = await self._probe(str(cfg["host"]), int(cfg["port"]))
+                except Exception:  # noqa: BLE001 -- see docstring
+                    status = "timeout"
+                if self.observe_peer(peer, status):
+                    self.on_peer_down(peer)
+
+    # --- surviving a restart ----------------------------------------------
+
+    def restore(self) -> int:
+        """Replay the log and resume the Lamport clock. Returns messages seen.
+
+        A node that restarts at zero reorders its own history: every message it
+        sends afterwards looks older than the ones already on disk, and the
+        append-only log stops being orderable. Replay is in (lamport, sender)
+        order, never timestamp, for the same reason everything else here is.
+
+        With the default in-memory store there is nothing on disk to replay --
+        pass `--db` for a node that should survive being restarted.
+        """
+        replayed = 0
+        for msg in self.log.replay():
+            self.clock.observe(msg.lamport)
+            replayed += 1
+        if replayed:
+            print(f"[{self.name}] replayed {replayed} messages; "
+                  f"lamport resumes at {self.clock.value}")
+        return replayed
+
     def publish_state(self) -> None:
+        # GET /health reads app.state.children; the supervisor is the only thing
+        # that actually knows. Without this the dashboard and /health disagree
+        # about the same node -- and demo beat 1 puts /health on the projector.
+        self.app.state.children = self.agent.supervisor.active_count
         BUS.publish_node(
             self.name,
             model=self.model,
@@ -213,7 +351,12 @@ class Node:
         self.publish_state()
         print(f"[{self.name}] listening on {cfg['host']}:{cfg['port']}  "
               f"role={cfg.get('role', '?')}  model={self.model}")
-        await server.serve()
+
+        watcher = asyncio.create_task(self._watch_peers())
+        try:
+            await server.serve()
+        finally:
+            watcher.cancel()
 
     async def kick_off(self, task: str, to: str) -> None:
         """Send the first task_request, opening a conversation."""
@@ -230,6 +373,7 @@ class Node:
 
 async def run(args: argparse.Namespace) -> None:
     node = Node(args.as_agent, config=args.config, db=args.db)
+    node.restore()
     serving = asyncio.create_task(node.serve())
     if args.task:
         await asyncio.sleep(args.delay)
@@ -243,7 +387,9 @@ def main() -> None:
     )
     parser.add_argument("--as", dest="as_agent", required=True, help="which peer this device is")
     parser.add_argument("--config", help="path to peers.yaml (default: four peers on localhost)")
-    parser.add_argument("--db", help="sqlite path (default: in-memory, lost on restart)")
+    parser.add_argument("--db", help="sqlite path. WITHOUT this the log is in-memory and a "
+                                     "restart replays nothing -- pass it for any run where a "
+                                     "node is meant to survive being killed")
     parser.add_argument("--task", help="send this task on startup, opening a conversation")
     parser.add_argument("--to", default="agent_b", help="who --task is addressed to")
     parser.add_argument("--delay", type=float, default=1.0,
