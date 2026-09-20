@@ -32,7 +32,42 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+
+def _ensure_deps() -> None:
+    """Re-run under the project's venv if this interpreter lacks the deps.
+
+    `python scripts/demo.py` from a plain cmd.exe picks whichever Python is on
+    PATH, which is usually not the one holding httpx and fastapi. The failure
+    is a traceback about a missing module, and the last place anyone wants to
+    debug an interpreter is in front of a panel. So: find the venv and switch
+    to it, out loud.
+
+    scripts/demo.py imports this module before it imports samvad, so this
+    covers both entry points from one place.
+    """
+    try:
+        import httpx  # noqa: F401  -- probe only
+        return
+    except ModuleNotFoundError:
+        pass
+
+    if os.environ.get("SAMVAD_REEXEC") == "1":       # already tried; do not loop
+        sys.exit("The venv is missing dependencies. Run:  uv sync --extra dev")
+
+    for candidate in (ROOT / ".venv" / "Scripts" / "python.exe",
+                      ROOT / ".venv" / "bin" / "python"):
+        if candidate.exists():
+            print(f"  switching to {candidate}", flush=True)
+            os.environ["SAMVAD_REEXEC"] = "1"
+            os.execv(str(candidate), [str(candidate), *sys.argv])
+
+    sys.exit("No .venv found and httpx is missing. Run:  uv sync --extra dev")
+
+
+_ensure_deps()
 
 from samvad import security
 from samvad.node import load_config, new_message
