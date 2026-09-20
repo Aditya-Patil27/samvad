@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -61,8 +62,15 @@ def _ensure_deps() -> None:
                       ROOT / ".venv" / "bin" / "python"):
         if candidate.exists():
             print(f"  switching to {candidate}", flush=True)
-            os.environ["SAMVAD_REEXEC"] = "1"
-            os.execv(str(candidate), [str(candidate), *sys.argv])
+            env = dict(os.environ, SAMVAD_REEXEC="1")
+            # subprocess, NOT os.execv. On Windows execv does not replace the
+            # process -- it spawns a child and the parent exits, so cmd.exe
+            # prints its prompt and starts reading the same keyboard the child
+            # is reading. Menu keys then land in the shell: "'2' is not
+            # recognized as an internal or external command". Waiting on a
+            # child keeps exactly one reader of the console.
+            completed = subprocess.run([str(candidate), *sys.argv], env=env, check=False)
+            sys.exit(completed.returncode)
 
     sys.exit("No .venv found and httpx is missing. Run:  uv sync --extra dev")
 
