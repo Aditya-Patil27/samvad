@@ -272,6 +272,16 @@ def main() -> None:
     demo = Demo(a.config, a.secret, a.mock, windows=not a.no_windows)
     print(f"\n  Samvad demo  --  {'MOCK (no inference)' if a.mock else 'Ollama'}"
           f"  --  secret {a.secret!r}")
+
+    # A previous run that was closed by its window rather than by 'q' leaves
+    # nodes holding these ports. Starting anyway gives four windows that die on
+    # "address already in use" and a menu driving nothing -- so say it here,
+    # before anyone presses 1 in front of a room.
+    busy = [n for n in demo.peers if demo.health(n) is not None]
+    if busy:
+        print(f"\n  WARNING: {', '.join(busy)} already answer -- an earlier demo is "
+              f"still running.\n  Close those windows first, or press 6 to see them. "
+              f"Pressing 1 now will fail.")
     print("  Start with 1. Then 2, 3, 4, 5 in order. Read what it tells you to say.")
 
     def run_one(key: str) -> bool:
