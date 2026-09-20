@@ -25,8 +25,13 @@ Four laptops is four times the failure surface. Everything below exists because 
 python scripts/netcheck.py --peers config/peers.yaml    # all pairs must pass
 ```
 
+- [ ] All four nodes started **with `--db`** — without it the log is in-memory and
+      beat 6 has nothing to replay
 - [ ] All four nodes start clean; `GET /health` green on each
-- [ ] Dashboard reachable from the presenting laptop
+- [ ] Dashboard open at `http://<presenting-node-ip>:8000/` — **served by a node,
+      not opened as a file.** Confirm the corner reads **live**, not *synthetic*.
+      Opened from the filesystem it cannot reach `/events`, silently falls back
+      to a scripted run, and labels itself "not measured data" on the projector
 - [ ] One `MOCK_LLM=1` task completes end to end
 - [ ] Terminals sized and readable from the back of the room — large font, dark background
 - [ ] Budget reset, cost counter at zero
@@ -71,11 +76,28 @@ Mid-fan-out, close an executor's terminal. Do it visibly.
 
 Orphans reparent to the grandparent. In-flight results still arrive. The task completes.
 
+**It takes about six seconds** — each peer is probed every 2 s and three consecutive
+failures are needed, because one dropped packet on campus wifi is not a dead laptop.
+Say that while you wait; the pause is the guard working, not the demo hanging. Watch
+the grandparent's terminal for `agent_b is down -- reparented N orphan(s)`, and the
+dashboard strip for that peer going dark.
+
 > "This is the demo you cannot give with agents in one process. There is nothing to kill."
 
-### 6 · Partition and heal (2 min)
+### 6 · Restart and resume (2 min)
 
-Drop one laptop off the network. Show divergence. Reconnect. Show reconciliation via the append-only log.
+Kill the node you just orphaned. Restart it **on the same `--db`**.
+
+It replays its log in `(lamport, sender)` order and prints
+`replayed N messages; lamport resumes at M`. Its clock picks up where it left
+off instead of restarting at zero.
+
+> "A node that restarts at zero reorders its own history — every message it
+> sends afterwards looks older than what is already on disk."
+
+**Scope this honestly.** What is demonstrated is restart-and-resume from the
+append-only log. Full partition-and-reconcile — two halves diverging and merging
+— is not built. Say so; the log is the mechanism either way.
 
 ### 7 · The numbers (1 min)
 
