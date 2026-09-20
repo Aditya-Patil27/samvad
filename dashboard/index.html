@@ -19,9 +19,17 @@
         "context":{"used":14200,"limit":200000},"children":2,"budget_usd":0.42}
        {"type":"message","lamport":14,"sender":"agent_a","receiver":"agent_b",
         "performative":"task_request","task_status":"in_progress",
-        "cost":{"usd":0.0031},"claims":[...],"artifacts":[...]}
+        "cost":{"usd":0.0031},"claims":[...],"artifacts":[...],
+        "root_task":"Implement binary search","result":"def binary_search(...)",
+        "exit_code":0}
      Any field beyond sender/receiver/performative/lamport is optional; the
      table degrades to what it was given.
+
+     TWO VIEWS OF ONE STREAM. "Office" draws the frames as a room -- a desk per
+     peer, an envelope flying desk to desk per message, a whiteboard showing
+     the task and what the model actually answered. "Audit table" is the
+     evidence view above. Both read the same frames; neither writes anything.
+     /?demo forces the synthetic run even when a node is serving this page.
 -->
 <!doctype html>
 <meta charset="utf-8">
@@ -252,6 +260,55 @@
     background: var(--panel); border-top: 1px solid var(--line);
     font-size: 11px; color: var(--muted);
   }
+
+  /* ---- view tabs ---- */
+  .tabs { display: flex; gap: 2px; margin-left: 4px; }
+  .tab {
+    font: 600 12px var(--sans); color: var(--ink-2); background: none; border: 0;
+    padding: 6px 12px; border-radius: 4px; cursor: pointer;
+  }
+  .tab:hover { background: var(--sunk); }
+  .tab[aria-selected="true"] { background: var(--accent-bg); color: var(--accent); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* ---- office: whiteboard above, room below ---- */
+  .office { display: none; flex: 1; flex-direction: column; min-height: 0; background: #1d2330; }
+  main.office-view .office { display: flex; }
+  main.office-view .filters, main.office-view .tablewrap, main.office-view .detail { display: none; }
+
+  /* A whiteboard stays white in dark mode, so its pills carry their own light palette. */
+  .board {
+    --ok: #0d7a53;   --ok-bg: #e2f3ec;   --warn: #9a6205; --warn-bg: #fbf0dc;
+    --bad: #b02418;  --bad-bg: #fbeae8;  --idle: #6d747e; --idle-bg: #eceef1;
+    flex: none; max-height: 40%; display: flex; flex-direction: column;
+    background: #f7f6f0; color: #1b2330; border-bottom: 6px solid #b8864f;
+  }
+  .board-h { display: flex; align-items: baseline; gap: 12px; padding: 8px 14px 4px; }
+  .board-h .lbl { font: 700 10px var(--mono); letter-spacing: .12em; color: #6d747e; }
+  .board-h .task {
+    font: 600 14px var(--sans); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #b-cards { overflow-y: auto; padding: 4px 14px 10px; display: grid; gap: 8px; min-height: 0; }
+  .card {
+    background: #fff; border: 1px solid #d6d3c4; border-left: 4px solid #6d747e;
+    border-radius: 3px; padding: 6px 10px;
+  }
+  .card.ok { border-left-color: var(--ok); }
+  .card.warn { border-left-color: var(--warn); }
+  .card.bad { border-left-color: var(--bad); }
+  .card .c-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 12px; }
+  .card .c-h .m { color: #6d747e; font: 11px var(--mono); margin-left: auto; }
+  .card pre {
+    margin-top: 5px; max-height: 12em; overflow: auto; white-space: pre-wrap;
+    background: #f3f2ea; color: #1b2330;
+  }
+  .b-empty { color: #6d747e; font-size: 13px; padding: 4px 0 2px; }
+  .b-empty code { font: 11.5px var(--mono); background: #eceae0; padding: 1px 5px; border-radius: 3px; }
+  .stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  #scene { display: block; }
+  #cap { margin-left: auto; }
+  main:not(.office-view) #cap { display: none; }
   @media (max-width: 720px) {
     .shell { grid-template-columns: 1fr; }
     aside { display: none; }
@@ -260,6 +317,10 @@
 
 <header>
   <span class="brand">SAMVAD<small>audit console</small></span>
+  <nav class="tabs" role="tablist" aria-label="View">
+    <button class="tab" role="tab" id="t-office" aria-selected="true">Office</button>
+    <button class="tab" role="tab" id="t-audit" aria-selected="false">Audit table</button>
+  </nav>
   <span class="badge" id="mode">connecting</span>
   <div class="kpis">
     <div class="kpi"><span class="v" id="k-grounded">—</span><span class="k">grounded</span></div>
@@ -301,7 +362,20 @@
     </details>
   </aside>
 
-  <main>
+  <main class="office-view" id="main">
+    <section class="office" id="office" aria-label="Agent office">
+      <div class="board">
+        <div class="board-h">
+          <span class="lbl">WHITEBOARD</span>
+          <span class="task" id="b-task">no task yet</span>
+        </div>
+        <div id="b-cards"></div>
+      </div>
+      <div class="stage" id="stage">
+        <canvas id="scene" aria-label="Animated office: one desk per agent, envelopes fly between desks as messages are sent"></canvas>
+      </div>
+    </section>
+
     <div class="filters">
       <select id="f-agent"><option value="">All agents</option></select>
       <select id="f-act"><option value="">All actions</option></select>
@@ -338,6 +412,7 @@
     <footer>
       <span>ordered by <b>lamport clock</b>, not wall time</span>
       <span id="hint"></span>
+      <span id="cap">office: motion follows real messages &middot; idle wandering is decoration</span>
     </footer>
   </main>
 </div>
@@ -350,10 +425,16 @@ const GROUNDED = new Set(["test_output", "file_content"]);
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
+/* A node only publishes frames about itself, so a page served by agent_a knows
+   nothing of agent_b's role until something says so. These are the roles
+   node.py defaults to; a frame or a saved peers.yaml overrides them. */
+const DEFAULT_ROLES = { agent_a: "planner", agent_b: "executor", agent_c: "reviewer", agent_d: "executor" };
+
 const state = {
-  rows: [], usd: 0, lamport: 0, claims: 0, grounded: 0, sel: null,
+  rows: [], usd: 0, lamport: 0, claims: 0, grounded: 0, sel: null, synthetic: false,
   nodes: Object.fromEntries(PEERS.map(p => [p, {
-    model: "—", role: "", up: true, used: 0, limit: 200000, children: 0, budget: 0, acts: 0
+    model: "—", role: DEFAULT_ROLES[p], up: true, used: 0, limit: 200000, children: 0, budget: 0, acts: 0,
+    heard: false
   }])),
   filter: { agent: "", act: "", ev: "", q: "" }
 };
@@ -500,6 +581,10 @@ function openDetail(i) {
 /* ---- ingest ----------------------------------------------------------- */
 function onMessage(m) {
   const r = { ...m, i: state.rows.length, ev: evidence(m) };
+  // Live frames carry the answer as top-level result/exit_code; the detail
+  // panel reads it from payload, as the synthetic frames put it.
+  if (m.result !== undefined && !r.payload)
+    r.payload = { result: m.result, ...(m.exit_code !== undefined ? { exit_code: m.exit_code } : {}) };
   state.rows.push(r);
   state.lamport = Math.max(state.lamport, m.lamport || 0);
   state.usd += m.cost?.usd || 0;
@@ -524,6 +609,7 @@ function onMessage(m) {
   }
   drawRows(r.i);
   drawRoster();
+  Office.message(r);
 }
 
 function onNode(n) {
@@ -532,9 +618,12 @@ function onNode(n) {
   Object.assign(s, {
     model: n.model ?? s.model, up: n.up ?? s.up, role: n.role ?? s.role,
     children: n.children ?? s.children, used: n.context?.used ?? s.used,
-    limit: n.context?.limit ?? s.limit, budget: n.budget_usd ?? s.budget
+    limit: n.context?.limit ?? s.limit, budget: n.budget_usd ?? s.budget,
+    heard: s.heard || n.context !== undefined || n.budget_usd !== undefined
   });
+  if (n.agent === setup.self) seedFromConfig();
   drawRoster();
+  Office.node(n);
 }
 
 const ingest = e => (e.type === "node" ? onNode : onMessage)(e);
@@ -565,6 +654,7 @@ $("f-clear").onclick = () => {
 
 /* ---- live, or synthetic ---------------------------------------------- */
 function live() {
+  if (/[?&]demo\b/.test(location.search)) return demo();
   let es;
   try { es = new EventSource("/events"); } catch { return demo(); }
   es.onopen = () => { $("mode").textContent = "live"; $("mode").classList.add("live"); $("hint").textContent = ""; };
@@ -581,6 +671,8 @@ function live() {
    claims deliberately: an audit view with no evidence to audit demonstrates
    nothing. */
 function demo() {
+  state.synthetic = true;
+  Office.refresh();
   $("mode").textContent = "synthetic";
   $("hint").textContent = "no /events — synthetic run, not measured data";
   const meta = {
@@ -696,13 +788,523 @@ function demo() {
   })();
 }
 
+/* ---- office view -----------------------------------------------------
+   The same frames the audit table reads, drawn as a room. Every desk, envelope,
+   typing animation and speech bubble comes from a frame. The one thing that
+   does not is idle wandering, which is decoration and is captioned as such.
+   Plain canvas rectangles: no images, no web fonts, no CDN -- the demo network
+   may have no internet, and a page that needs it renders blank on the day. */
+const Office = (() => {
+  const W = 320, H = 184;                              // logical pixels, scaled to fit
+  const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  const WALK = 34;                                     // logical px per second
+
+  const LOOK = {
+    agent_a: { shirt: "#3b82f6", hair: "#2b2118", skin: "#f2c9a0", style: 1 },
+    agent_b: { shirt: "#22a06b", hair: "#7a4a21", skin: "#e0ac82", style: 0 },
+    agent_c: { shirt: "#9b5de5", hair: "#d9a441", skin: "#f2c9a0", style: 2 },
+    agent_d: { shirt: "#f28c28", hair: "#b5442e", skin: "#8d5a3b", style: 3 }
+  };
+  // dx: desk centre, dy: desk top edge, side: which way the aisle lies
+  const SEAT = {
+    agent_a: { dx: 80,  dy: 64,  side:  1 },
+    agent_b: { dx: 240, dy: 64,  side: -1 },
+    agent_c: { dx: 80,  dy: 138, side:  1 },
+    agent_d: { dx: 240, dy: 138, side: -1 }
+  };
+  const SPOTS = {
+    left:  [{ x: 20, y: 120 }, { x: 34, y: 126 }],
+    right: [{ x: 300, y: 120 }, { x: 286, y: 126 }],
+    aisle: [{ x: 160, y: 96 }, { x: 150, y: 126 }, { x: 172, y: 82 }]
+  };
+  const LANE = 109;   // the gap between the two desk rows; walkers cross the room along it
+  const KIND = {                                       // bubble palette: [fill, ink]
+    info: ["#ffffff", "#1b2330"], good: ["#d9f7e6", "#0d7a53"],
+    warn: ["#fdf0d0", "#9a6205"], bad:  ["#fde3df", "#b02418"]
+  };
+  const ENV_COLOR = {
+    task_request: "#3b82f6", task_result: "#22a06b", child_result: "#14b8a6",
+    spawn_request: "#9b5de5", spawn_ack: "#9b5de5", spawn_refused: "#dc2626",
+    budget_exhausted: "#dc2626", uncertain: "#d99a1b"
+  };
+  const SAYS = {                                       // task_status -> [text, kind]
+    complete: ["done", "good"], needs_revision: ["needs fix", "warn"],
+    uncertain: ["not sure", "warn"], abandoned: ["gave up", "bad"]
+  };
+
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = list => list[Math.floor(Math.random() * list.length)];
+  const clock = () => performance.now() / 1000;
+  const exitOf = a => ({ x: a.dx + a.side * 38, y: a.dy + 12 });
+  const seatOf = a => ({ x: a.dx - 12, y: a.dy + 7 });
+  // Walkers leave and return by the lane, so nobody cuts through a desk.
+  const pathHome = a => { const e = exitOf(a); return [{ x: a.x, y: LANE }, { x: e.x, y: LANE }, e]; };
+  const pathTo = (a, to) => { const e = exitOf(a); return [{ x: e.x, y: LANE }, { x: to.x, y: LANE }, to]; };
+
+  let cv = null, ctx = null, k = 1, shown = true;
+  const agents = {}, envs = [], helpers = [], puffs = [], cards = [];
+
+  for (const p of PEERS) {
+    const s = SEAT[p], seat = seatOf(s);
+    agents[p] = { name: p, ...s, look: LOOK[p], mode: "sit", x: seat.x, y: seat.y, face: 1,
+      route: [], dest: "", working: false, pending: 0, since: 0, down: false, up: true,
+      feed: false, parent: "", bubble: null, nextRoam: clock() + rand(4, 9), leaveAt: 0 };
+  }
+
+  /* ---- drawing primitives: rects snapped to whole device pixels ---------- */
+  const X = v => Math.round(v * k);
+  function R(color, x, y, w, h) {
+    ctx.fillStyle = color;
+    const x0 = X(x), y0 = X(y);
+    ctx.fillRect(x0, y0, X(x + w) - x0, X(y + h) - y0);
+  }
+  function T(text, x, y, color, size = 6, align = "center", bold = false) {
+    ctx.font = `${bold ? "700 " : ""}${Math.max(6, Math.round(size * k))}px ${MONO}`;
+    ctx.textAlign = align; ctx.textBaseline = "alphabetic"; ctx.fillStyle = color;
+    ctx.fillText(text, X(x), X(y));
+  }
+  function width(text, size) {
+    ctx.font = `${Math.max(6, Math.round(size * k))}px ${MONO}`;
+    return ctx.measureText(text).width / k;
+  }
+  const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+  /* ---- the room ----------------------------------------------------------- */
+  function room() {
+    R("#e6dfcc", 0, 0, W, 40); R("#d3cab1", 0, 34, W, 4); R("#b3a88d", 0, 38, W, 2);
+    for (let y = 40; y < H; y += 10)
+      for (let x = 0; x < W; x += 10)
+        R(((x + y) / 10) % 2 ? "#6f8299" : "#7a8da4", x, y, 10, 10);
+
+    R("#f4f1e6", 118, 5, 84, 30); R("#9fd3f5", 121, 8, 37, 24); R("#9fd3f5", 162, 8, 37, 24);
+    R("#ffe9a3", 128, 12, 8, 8); R("#ffffff", 168, 15, 14, 3); R("#ffffff", 172, 12, 10, 3);
+
+    R("#2d3a4f", 22, 9, 62, 22); T("SAMVAD", 53, 24, "#e8eefc", 9, "center", true);
+    R("#10151c", 236, 9, 66, 22); T("LAMPORT", 269, 17, "#7d8896", 5);
+    T(String(state.lamport), 269, 28, "#57e389", 10, "center", true);
+
+    R("#8a4f45", 4, 134, 28, 8); R("#b8665a", 4, 142, 28, 9);                     // couch
+    R("#8a4f45", 2, 138, 4, 13); R("#8a4f45", 30, 138, 4, 13);
+    R("#e9eef2", 292, 134, 12, 18); R("#8ecdf2", 293, 123, 10, 11);                  // water cooler
+    R("#c9d6de", 292, 134, 12, 1); R("#3b82f6", 296, 141, 4, 2);
+    for (const [px, py] of [[8, 46], [302, 46], [10, 168]]) {                       // plants
+      R("#a55a3c", px, py + 10, 8, 7); R("#3f9b57", px - 3, py + 2, 14, 9); R("#2f7a44", px, py - 3, 8, 7);
+    }
+  }
+
+  /* ---- a person ------------------------------------------------------------ */
+  function crossEye(x, y) {
+    R("#1b1f27", x, y, 1, 1); R("#1b1f27", x + 2, y, 1, 1); R("#1b1f27", x + 1, y + 1, 1, 1);
+    R("#1b1f27", x, y + 2, 1, 1); R("#1b1f27", x + 2, y + 2, 1, 1);
+  }
+
+  function person(x, y, look, o = {}) {
+    const { shirt, hair, skin, style } = look, ex = (o.face || 1) > 0 ? 1 : 0;
+    y -= o.lift || 0;
+    if (!o.seated) {
+      const s = o.step || 0;
+      R("rgba(0,0,0,.22)", x - 5, y - 1, 10, 2);
+      R("#2f3a4d", x - 3, y - 5 + (s > 0 ? 1 : 0), 3, 5 - (s > 0 ? 1 : 0));
+      R("#2f3a4d", x,     y - 5 + (s < 0 ? 1 : 0), 3, 5 - (s < 0 ? 1 : 0));
+      R("#141922", x - 3, y - 1, 3, 1); R("#141922", x, y - 1, 3, 1);
+      R(shirt, x - 6, y - 11 + (s > 0 ? 1 : 0), 2, 4); R(skin, x - 6, y - 7 + (s > 0 ? 1 : 0), 2, 2);
+      R(shirt, x + 4, y - 11 + (s < 0 ? 1 : 0), 2, 4); R(skin, x + 4, y - 7 + (s < 0 ? 1 : 0), 2, 2);
+    }
+    R(shirt, x - 4, y - 12, 8, 7); R("rgba(0,0,0,.14)", x - 4, y - 6, 8, 1);
+
+    const h = y + (o.slump ? 6 : 0);
+    R(skin, x - 5, h - 21, 10, 9);
+    R(hair, x - 5, h - 22, 10, 3);
+    if (style === 0) { R(hair, x - 5, h - 19, 1, 3); R(hair, x + 4, h - 19, 1, 3); }
+    if (style === 1) { R(hair, x - 5, h - 19, 1, 4); R(hair, x + 4, h - 19, 1, 3); R(hair, x - 4, h - 19, 5, 1); R(hair, x - 2, h - 24, 4, 2); }
+    if (style === 2) { R(hair, x - 6, h - 21, 2, 11); R(hair, x + 4, h - 21, 2, 11); }
+    if (style === 3) { R(hair, x - 5, h - 20, 1, 3); R(hair, x + 4, h - 20, 1, 3); R(hair, x - 4, h - 24, 2, 2); R(hair, x, h - 25, 2, 3); R(hair, x + 3, h - 24, 2, 2); }
+
+    if (o.dead) {
+      crossEye(x - 3 + ex, h - 17); crossEye(x + 1 + ex, h - 17);
+      R("#a5483a", x - 1 + ex, h - 13, 2, 2);
+    } else if (o.blink) {
+      R("#1b1f27", x - 3 + ex, h - 16, 2, 1); R("#1b1f27", x + 1 + ex, h - 16, 2, 1);
+      R("#a5483a", x - 1 + ex, h - 13, 2, 1);
+    } else {
+      R("#1b1f27", x - 3 + ex, h - 17, 2, 3); R("#1b1f27", x + 1 + ex, h - 17, 2, 3);
+      R("#ffffff", x - 3 + ex, h - 17, 1, 1); R("#ffffff", x + 1 + ex, h - 17, 1, 1);
+      R("#f29a9a", x - 4 + ex, h - 14, 2, 1); R("#f29a9a", x + 2 + ex, h - 14, 2, 1);
+      R("#a5483a", x - 1 + ex, h - 13, 2, 1);
+    }
+  }
+
+  function mini(h, t) {
+    const a = agents[h.owner], x = h.x, y = h.y, s = h.walking ? Math.sin(t * 10) : 0;
+    R("rgba(0,0,0,.2)", x - 4, y - 1, 8, 2);
+    R("#2f3a4d", x - 2, y - 3 + (s > 0 ? 1 : 0), 4, 3 - (s > 0 ? 1 : 0));
+    R(a.look.shirt, x - 3, y - 8, 6, 5);
+    R("#f2c9a0", x - 3, y - 13, 6, 5); R("#3b2b20", x - 3, y - 14, 6, 2);
+    R("#1b1f27", x - 2, y - 11, 1, 2); R("#1b1f27", x + 1, y - 11, 1, 2);
+    if (!h.walking) { R("#cfd3da", x - 4, y - 5, 8, 3); R("#57e389", x - 3, y - 5, 6, 1); }
+  }
+
+  /* ---- a desk and whoever sits at it --------------------------------------- */
+  function monitor(a, t) {
+    const sx = a.dx + 6, sy = a.dy - 19;
+    R("#232a36", sx - 1, sy - 1, 22, 16);
+    R(a.down ? "#0a0d12" : a.working ? "#0e2a1c" : "#173450", sx, sy, 20, 14);
+    if (a.working) {
+      const f = Math.floor(t * 6);
+      for (let i = 0; i < 4; i++) R(i % 2 ? "#57e389" : "#9be8ff", sx + 2, sy + 2 + i * 3, 4 + ((f * 7 + i * 5) % 12), 1);
+    } else if (!a.down) {
+      R("#2c5f8f", sx + 2, sy + 3, 10, 1); R("#2c5f8f", sx + 2, sy + 6, 6, 1);
+    }
+    R("#232a36", a.dx + 14, a.dy - 4, 4, 4); R("#1a1f28", a.dx + 11, a.dy - 1, 10, 2);
+  }
+
+  function plate(a) {
+    const n = state.nodes[a.name], y = a.dy + 17, left = a.dx - 26, right = a.dx + 28;
+    R(a.down ? "#5a1d1d" : "#20283a", a.dx - 30, y, 60, 24);
+    R(a.look.shirt, a.dx - 30, y, 2, 24);
+    T(a.name, left, y + 7, "#ffffff", 6, "left", true);
+    T(clip(n.role || "", 9), right, y + 7, "#9fb0c9", 5, "right");
+    T(clip(n.model && n.model !== "—" ? n.model : "model unknown", 19), left, y + 13, "#9fb0c9", 5, "left");
+    T(n.heard ? `ctx ${(n.used / 1000).toFixed(1)}k  $${n.budget.toFixed(3)}` : "n/a · other node",
+      left, y + 19, n.heard ? "#c8d3e6" : "#7d8896", 5, "left");
+    const pct = n.heard && n.limit ? Math.min(1, n.used / n.limit) : 0;
+    R("#0d1117", a.dx - 28, y + 21, 56, 2);
+    R(pct > .9 ? "#f0796c" : pct > .7 ? "#e0a33e" : "#4c9aff", a.dx - 28, y + 21, 56 * pct, 2);
+  }
+
+  function desk(a, t) {
+    const s = seatOf(a), atDesk = a.mode === "sit" || a.mode === "faint";
+    R("#39424f", s.x - 7, a.dy - 14, 14, 17);                                       // chair
+    if (atDesk) person(s.x, s.y, a.look, {
+      seated: true, face: 1, dead: a.down, slump: a.down, blink: ((t + a.dx) % 3.7) < .12
+    });
+    R("#b8864f", a.dx - 30, a.dy, 60, 5); R("#d0a06a", a.dx - 30, a.dy, 60, 1);
+    R("#8f6438", a.dx - 30, a.dy + 5, 60, 10); R("#7a5430", a.dx + 6, a.dy + 7, 22, 6);
+    R("#d6c39a", a.dx + 15, a.dy + 9, 4, 1); R("#d9dde3", a.dx - 22, a.dy + 1, 14, 2);
+    monitor(a, t);
+    if (atDesk && !a.down) {
+      const alt = a.working ? Math.floor(t * 8) % 2 : 0;
+      R(a.look.shirt, s.x - 6, a.dy - 8, 2, 6); R(a.look.shirt, s.x + 4, a.dy - 8, 2, 6);
+      R(a.look.skin, s.x - 6, a.dy - 2 + alt, 2, 2); R(a.look.skin, s.x + 4, a.dy - 2 + (1 - alt), 2, 2);
+    }
+    plate(a);
+  }
+
+  /* ---- things in flight ------------------------------------------------------ */
+  function bubble(x, y, text, kind) {
+    const [fill, ink] = KIND[kind] || KIND.info, w = Math.ceil(width(text, 6)) + 6, h = 10;
+    const bx = Math.max(2, Math.min(W - w - 2, Math.round(x - w / 2))), by = Math.round(y - h);
+    R(ink, bx - 1, by - 1, w + 2, h + 2); R(fill, bx, by, w, h);
+    const tx = Math.max(bx + 2, Math.min(bx + w - 3, Math.round(x)));
+    R(ink, tx - 1, by + h + 1, 3, 1); R(ink, tx, by + h + 2, 1, 1); R(fill, tx - 1, by + h, 3, 1);
+    T(text, bx + w / 2, by + 7, ink, 6, "center", true);
+  }
+
+  function bubbleFor(a, t) {
+    let text = "", kind = "info";
+    if (a.bubble) ({ text, kind } = a.bubble);
+    else if (a.working) {
+      const secs = Math.floor(t - a.since);
+      text = ".".repeat(1 + Math.floor(t * 2.5) % 3).padEnd(3, " ") + (secs >= 3 ? ` ${secs}s` : "");
+    }
+    if (!text) return;
+    const seated = a.mode === "sit" || a.mode === "faint";
+    bubble(seated ? a.dx - 12 : a.x, seated ? a.dy - 27 : a.y - 30, text, kind);
+  }
+
+  function envelope(e) {
+    const p = e.t, x = e.from.x + (e.to.x - e.from.x) * p;
+    const y = e.from.y + (e.to.y - e.from.y) * p - Math.sin(Math.PI * p) * 18;
+    R("#ffffff", x - 4, y - 3, 8, 6);
+    R(e.color, x - 4, y - 3, 8, 1); R(e.color, x - 4, y + 2, 8, 1);
+    R(e.color, x - 4, y - 3, 1, 6); R(e.color, x + 3, y - 3, 1, 6);
+    R(e.color, x - 3, y - 2, 1, 1); R(e.color, x - 2, y - 1, 1, 1); R(e.color, x - 1, y, 1, 1);
+    R(e.color, x + 2, y - 2, 1, 1); R(e.color, x + 1, y - 1, 1, 1); R(e.color, x, y, 1, 1);
+  }
+
+  function puff(p, t) {
+    const age = Math.min(1, (t - p.t) / .5), d = 2 + age * 6;
+    ctx.globalAlpha = 1 - age;
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) R("#ffffff", p.x + dx * d - 1, p.y + dy * d - 1, 3, 3);
+    ctx.globalAlpha = 1;
+  }
+
+  function draw(t) {
+    room();
+    const all = Object.values(agents);
+    for (const a of [...all].sort((p, q) => p.dy - q.dy)) desk(a, t);
+
+    const walkers = [];
+    for (const a of all) {
+      if (a.mode === "sit" || a.mode === "faint") continue;
+      walkers.push([a.y, () => person(a.x, a.y, a.look, {
+        face: a.face, step: a.mode === "walk" ? Math.sin(t * 9) : 0,
+        lift: a.mode === "walk" && Math.abs(Math.sin(t * 9)) > .75 ? 1 : 0,
+        blink: ((t + a.dx) % 3.7) < .12
+      })]);
+    }
+    for (const h of helpers) walkers.push([h.y, () => mini(h, t)]);
+    walkers.sort((p, q) => p[0] - q[0]).forEach(w => w[1]());
+
+    for (const p of puffs) puff(p, t);
+    for (const e of envs) envelope(e);
+    for (const a of all) bubbleFor(a, t);
+  }
+
+  /* ---- what a frame does to the room ------------------------------------------ */
+  const helpersOf = name => helpers.filter(h => h.owner === name);
+
+  function layout(name) {
+    const a = agents[name];
+    helpersOf(name).forEach((h, i) => {
+      h.tx = a.dx + a.side * (44 + (i % 3) * 9);
+      h.ty = a.dy + 20 + Math.floor(i / 3) * 10;
+    });
+  }
+  function addHelper(name) {
+    if (helpersOf(name).length >= 8) return;               // the concurrency cap, drawn
+    const a = agents[name], e = exitOf(a);
+    helpers.push({ owner: name, x: e.x, y: e.y, tx: e.x, ty: e.y, walking: false });
+    layout(name);
+  }
+  function dropHelpers(name, n = Infinity) {
+    for (let i = helpers.length - 1; i >= 0 && n > 0; i--)
+      if (helpers[i].owner === name) {
+        puffs.push({ x: helpers[i].x, y: helpers[i].y - 6, t: clock() });
+        helpers.splice(i, 1); n--;
+      }
+    layout(name);
+  }
+  function syncHelpers(name, count) {
+    const have = helpersOf(name).length;
+    if (count > have) for (let i = have; i < count; i++) addHelper(name);
+    else if (count < have) dropHelpers(name, have - count);
+  }
+  function moveHelpers(from, to) {
+    helpersOf(from).forEach(h => { h.owner = to; });
+    layout(to); layout(from);
+  }
+
+  function say(a, text, kind = "info", secs = 2) { a.bubble = { text, kind, until: clock() + secs }; }
+  function wake(a) {
+    if (a.down || (a.mode !== "walk" && a.mode !== "stand")) return;
+    a.mode = "walk"; a.route = pathHome(a); a.dest = "home";
+  }
+  // State changes apply the moment a frame arrives; envelopes are decoration.
+  // Tying "starts working" to an envelope landing let a slow frame rate deliver
+  // the request AFTER the result and leave an agent typing forever.
+  function start(a, from) {
+    if (a.down) return;
+    if (!a.pending) a.since = clock();
+    a.pending++; a.working = true; if (from) a.parent = from;
+    wake(a);
+  }
+  function finish(a, m) {
+    a.pending = Math.max(0, a.pending - 1); a.working = a.pending > 0;
+    const [text, kind] = SAYS[m.task_status] || ["sent", "info"];
+    const code = m.exit_code ?? m.payload?.exit_code;
+    say(a, code === undefined ? text : `${text} · exit ${code}`, kind, 4);
+    if (!a.feed) dropHelpers(a.name);
+  }
+  function adopter(a) {
+    const p = agents[a.parent];
+    return p && p.up ? p : Object.values(agents).find(x => x !== a && x.up) || null;
+  }
+  // A dead peer always slumps at its own desk: the desk is the device, and it
+  // is the device that went away, wherever the wandering figure happened to be.
+  function collapse(a) {
+    const s = seatOf(a);
+    a.up = false; a.down = true; a.working = false; a.pending = 0;
+    a.mode = "faint"; a.route = []; a.x = s.x; a.y = s.y;
+    a.bubble = { text: "DOWN", kind: "bad", until: Infinity };
+    const heir = adopter(a);
+    if (heir) moveHelpers(a.name, heir.name); else dropHelpers(a.name);
+  }
+  function revive(a) {
+    a.up = true; a.down = false; a.mode = "sit";
+    say(a, "back!", "good", 2.5);
+    a.nextRoam = clock() + rand(6, 12);
+  }
+
+  function fly(A, B, perf, done) {
+    if (!A || !B || A === B) { if (done) done(); return; }
+    envs.push({
+      from: { x: A.dx + 15, y: A.dy - 12 }, to: { x: B.dx + 15, y: B.dy - 12 },
+      t: 0, dur: .95, color: ENV_COLOR[perf] || "#6b7480", done
+    });
+  }
+
+  function message(m) {
+    const s = peerOf(m.sender), r = peerOf(m.receiver), A = agents[s], B = agents[r], perf = m.performative;
+    const result = m.result ?? m.payload?.result;
+    if (m.root_task) { task = m.root_task; $("b-task").textContent = task; if (!cards.length) drawCards(); }
+    if (result !== undefined && result !== "") addCard(m, String(result));
+
+    if (perf === "task_request") {
+      if (B) start(B, s);
+      fly(A, B, perf, () => { if (B && B.working) say(B, "new task", "info", 1.4); });
+    } else if (perf === "task_result" || perf === "child_result") {
+      if (A && !m.down && m.task_status !== "in_progress") finish(A, m);
+      fly(A, B, perf, () => { if (B && B !== A && !B.down) say(B, perf === "task_result" ? "got it" : "child done", "info", 1.2); });
+    } else if (perf === "spawn_ack") {
+      const owner = m.child ? peerOf(m.child) : s;
+      if (agents[owner]) { addHelper(owner); say(agents[owner], "spawn", "info", 1.2); }
+    } else if (perf === "spawn_request") {
+      fly(A, B, perf);
+    } else if (perf === "spawn_refused" || perf === "budget_exhausted") {
+      if (A) say(A, perf === "spawn_refused" ? "refused" : "no budget", "bad", 3);
+      fly(A, B, perf);
+    } else if (perf === "uncertain") {
+      if (A) say(A, "not sure", "warn", 3);
+      fly(A, B, perf);
+    }
+  }
+
+  function node(n) {
+    const a = agents[n.agent];
+    if (!a) return;
+    if (n.up === false && a.up) collapse(a);
+    else if (n.up === true && !a.up) revive(a);
+    if (typeof n.children === "number") { a.feed = true; syncHelpers(n.agent, n.children); }
+  }
+
+  /* ---- the whiteboard ---------------------------------------------------------- */
+  let task = "";
+  const EMPTY = () => state.synthetic
+    ? `<div class="b-empty">Synthetic run in progress &mdash; each agent's answer appears here as it finishes.</div>`
+    : task
+      ? `<div class="b-empty">Task sent &mdash; the answer appears here when the agent finishes. Local models can take a minute.</div>`
+      : `<div class="b-empty">Nothing has run yet. Start a task:
+        <code>python -m samvad.node --as agent_a --task "Write binary_search(arr, target)" --to agent_b</code></div>`;
+
+  function addCard(m, text) {
+    cards.unshift({
+      from: m.sender, to: m.receiver, status: m.task_status, lamport: m.lamport,
+      code: m.exit_code ?? m.payload?.exit_code, usd: m.cost?.usd, text
+    });
+    cards.length = Math.min(cards.length, 6);
+    drawCards();
+  }
+  function drawCards() {
+    $("b-cards").innerHTML = cards.length ? cards.map(c => `
+      <div class="card ${STATUS_CLASS[c.status] || "idle"}">
+        <div class="c-h"><b class="mono">${esc(c.from)} → ${esc(c.to)}</b>
+          ${c.status ? `<span class="pill ${STATUS_CLASS[c.status] || "idle"}">${esc(c.status)}</span>` : ""}
+          ${c.code !== undefined ? `<span class="pill ${c.code === 0 ? "ok" : "bad"}">exit ${esc(c.code)}</span>` : ""}
+          <span class="m">${c.usd ? "$" + Number(c.usd).toFixed(4) + " · " : ""}lamport ${esc(c.lamport)}</span></div>
+        <pre>${esc(c.text)}</pre>
+      </div>`).join("") : EMPTY();
+  }
+
+  /* ---- simulation and loop -------------------------------------------------------- */
+  function arrive(a, t) {
+    if (a.dest === "home") {
+      const s = seatOf(a);
+      a.mode = "sit"; a.x = s.x; a.y = s.y; a.face = 1; a.nextRoam = t + rand(6, 14);
+    } else { a.mode = "stand"; a.leaveAt = t + rand(2.5, 5); }
+  }
+  function roam(a) {
+    const options = [...(a.side > 0 ? SPOTS.left : SPOTS.right), ...SPOTS.aisle];
+    const other = pick(Object.values(agents).filter(o => o !== a && o.up));
+    if (other && Math.random() < .3) { const e = exitOf(other); options.push({ x: e.x, y: e.y + 6 }); }
+    const from = exitOf(a);
+    a.x = from.x; a.y = from.y; a.mode = "walk"; a.route = pathTo(a, pick(options)); a.dest = "roam";
+  }
+  function stepAgent(a, dt, t) {
+    if (a.bubble && a.bubble.until < t) a.bubble = null;
+    if (a.mode === "walk") {
+      const w = a.route[0];
+      if (!w) return arrive(a, t);
+      const dx = w.x - a.x, dy = w.y - a.y, d = Math.hypot(dx, dy), s = WALK * dt;
+      if (d <= s) { a.x = w.x; a.y = w.y; a.route.shift(); if (!a.route.length) arrive(a, t); }
+      else { a.x += dx / d * s; a.y += dy / d * s; if (Math.abs(dx) > .5) a.face = dx > 0 ? 1 : -1; }
+    } else if (a.mode === "stand") {
+      if (t > a.leaveAt) { a.mode = "walk"; a.route = pathHome(a); a.dest = "home"; }
+    } else if (a.mode === "sit" && !a.working && !REDUCED && t > a.nextRoam) {
+      roam(a);
+    }
+  }
+  function step(dt, t) {
+    for (const a of Object.values(agents)) stepAgent(a, dt, t);
+    for (const h of helpers) {
+      const dx = h.tx - h.x, dy = h.ty - h.y, d = Math.hypot(dx, dy);
+      h.walking = d > .5;
+      if (h.walking) { const s = Math.min(d, 32 * dt); h.x += dx / d * s; h.y += dy / d * s; }
+    }
+    for (let i = envs.length - 1; i >= 0; i--) {
+      const e = envs[i];
+      e.t += dt / e.dur;
+      if (e.t >= 1) { envs.splice(i, 1); if (e.done) e.done(); }
+    }
+    for (let i = puffs.length - 1; i >= 0; i--) if (t - puffs[i].t > .5) puffs.splice(i, 1);
+  }
+
+  function fit() {
+    const stage = $("stage"), dpr = window.devicePixelRatio || 1;
+    if (!stage.clientWidth || !stage.clientHeight) { ctx = null; return; }
+    cv = $("scene");
+    k = Math.max(1, Math.min(stage.clientWidth * dpr / W, stage.clientHeight * dpr / H));
+    cv.width = Math.round(W * k); cv.height = Math.round(H * k);
+    cv.style.width = cv.width / dpr + "px"; cv.style.height = cv.height / dpr + "px";
+    ctx = cv.getContext("2d");
+  }
+
+  let last = clock();
+  function frame() {
+    const t = clock(), dt = Math.min(.1, t - last);
+    last = t;
+    step(dt, t);
+    if (shown && ctx) draw(t);
+    requestAnimationFrame(frame);
+  }
+  new ResizeObserver(fit).observe($("stage"));
+  drawCards();
+  requestAnimationFrame(frame);
+
+  const snapshot = () => Object.fromEntries(Object.values(agents).map(a => [a.name, {
+    mode: a.mode, working: a.working, pending: a.pending, down: a.down, x: a.x, y: a.y,
+    helpers: helpersOf(a.name).length
+  }]));
+
+  return { message, node, snapshot, refresh: drawCards, show(v) { shown = v; if (v) requestAnimationFrame(fit); } };
+})();
+
+function setView(view) {
+  const office = view === "office";
+  $("main").classList.toggle("office-view", office);
+  $("t-office").setAttribute("aria-selected", String(office));
+  $("t-audit").setAttribute("aria-selected", String(!office));
+  Office.show(office);
+  try { history.replaceState(null, "", office ? location.pathname + location.search : "#audit"); } catch {}
+}
+$("t-office").onclick = () => setView("office");
+$("t-audit").onclick = () => setView("audit");
+setView(location.hash === "#audit" ? "audit" : "office");
+
 /* ---- peer setup ------------------------------------------------------
    The dashboard is served by the node it configures, so POST /setup writes
    config/peers.yaml on THIS machine. It refuses writes from anywhere else --
    the node binds 0.0.0.0, and without that restriction anyone on the wifi
    could redirect where this node sends its traffic. The YAML box exists
    because the other three laptops still need the same file. */
-const setup = { peers: {}, defaults: null, local: [] };
+const setup = { peers: {}, defaults: null, local: [], saved: false, self: "" };
+
+/* A node publishes frames only about itself, so the OTHER three peers' models
+   are learnable only from peers.yaml. Trusted only when this node's own model
+   matches what the file says for it -- proof the node was started with that
+   file. A mock run of the same checkout must not be labelled as ollama. */
+function seedFromConfig() {
+  const own = state.nodes[setup.self];
+  if (!setup.saved || !own || own.model === "—" || setup.peers[setup.self]?.model !== own.model) return;
+  for (const [name, c] of Object.entries(setup.peers)) {
+    const s = state.nodes[name];
+    if (!s) continue;
+    if (s.model === "—" && c.model) s.model = c.model;
+    if (c.role) s.role = c.role;
+  }
+  drawRoster();
+}
 
 async function loadSetup() {
   let data;
@@ -711,6 +1313,9 @@ async function loadSetup() {
   setup.peers = data.peers || {};
   setup.defaults = data.defaults;
   setup.local = data.local_addresses || [];
+  setup.saved = !!data.saved;
+  try { setup.self = (await (await fetch("/health")).json()).agent || ""; } catch {}
+  seedFromConfig();
   drawPeerRows();
   $("mine").innerHTML = setup.local.length
     ? "this machine: " + setup.local.map(a => `<b data-ip="${a}">${a}</b>`).join(" ")
