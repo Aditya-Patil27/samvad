@@ -28,7 +28,14 @@ python scripts/netcheck.py --peer <teammate-ip>:8000     # do this FIRST
 MOCK_LLM=1 python -m samvad.node --as agent_a            # zero-cost run
 ```
 
-See the dashboard without any of that — it falls back to a synthetic run:
+With a node running, the dashboard is served from it and traces the live run:
+
+```bash
+http://127.0.0.1:8000/
+```
+
+Without one, open the file directly and it falls back to a synthetic run — it
+labels itself as such, because `/events` is relative and resolves to nothing:
 
 ```bash
 start dashboard/index.html      # Windows;  `open` on macOS

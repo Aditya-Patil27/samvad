@@ -232,3 +232,43 @@ def test_same_envelope_over_all_three_transports():
     assert security.canonical(msg) == security.canonical(
         type(msg).model_validate_json(msg.model_dump_json())
     )
+
+
+# --- the dashboard is served from the node ----------------------------------
+
+async def test_root_serves_the_dashboard_so_events_is_same_origin():
+    """dashboard/index.html calls `EventSource("/events")` -- a relative URL.
+
+    Opened as a file:// URL that resolves to nothing, the page falls back to its
+    synthetic run and labels itself "not measured data". During a demo that
+    reads as the system being faked rather than the page being opened wrong, so
+    the node serves the console itself and the fallback stays a fallback.
+    """
+    app = _app(RecordingInbox())
+    client = await _client(app)
+    async with client:
+        response = await client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert 'EventSource("/events")' in response.text
+
+
+async def test_a_missing_dashboard_is_a_404_and_does_not_take_the_node_down():
+    """A checkout without dashboard/ is still a working node. Losing the inbox
+    because a static file is absent would be the wrong trade."""
+    from samvad import server
+
+    app = _app(RecordingInbox())
+    client = await _client(app)
+    original = server.DASHBOARD_HTML
+    server.DASHBOARD_HTML = original.parent / "does-not-exist.html"
+    try:
+        async with client:
+            response = await client.get("/")
+            health = await client.get("/health")
+    finally:
+        server.DASHBOARD_HTML = original
+
+    assert response.status_code == 404
+    assert health.status_code == 200, "a missing dashboard must not affect the inbox"
