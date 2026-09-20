@@ -191,9 +191,13 @@ machines), then shows a menu:
  2  send one task     (beat 2)    6  health of all four
  3  fan out to 3      (beat 3)    7  open the dashboard
  4  kill agent_b      (beat 4)    q  stop everything and quit
+
+ a  the whole demo: 1 2 3 4 5, pausing before each beat
 ```
 
-Press **1, 2, 3, 4, 5** in that order. After each one it prints the line to say
+**Type `a` and press Enter between beats.** It holds before each one, so the room
+sets the pace — `s` skips a beat, `q` stops. Single keys work too, and so does a
+sequence: `1,2,3,4,5` and `12345` both do the same thing. After each one it prints the line to say
 out loud, so nobody has to hold the runbook while standing up. `q` stops every
 node it started. Logs go to `.demo/`, and every node gets `--db` automatically —
 the flag beat 5 depends on and the easiest one to forget.

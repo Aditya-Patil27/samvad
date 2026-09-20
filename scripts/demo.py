@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -235,7 +236,25 @@ MENU = """
    2  send one task     (beat 2)    6  health of all four
    3  fan out to 3      (beat 3)    7  open the dashboard
    4  kill agent_b      (beat 4)    q  stop everything and quit
-  ------------------------------------------------------------------"""
+
+   a  the whole demo: 1 2 3 4 5, pausing before each beat
+  ------------------------------------------------------------------
+  one number, or several -- "1,2,3" and "12345" both work"""
+
+#: `a` is the whole run. Beat 1 is included so one keystroke covers a cold start.
+WHOLE_DEMO = ("1", "2", "3", "4", "5")
+
+
+def parse_choice(text: str) -> list[str]:
+    """Menu keys from whatever was typed.
+
+    "3" -> ["3"] · "1,2,3" -> ["1","2","3"] · "12345" -> [...] · "q" -> ["q"]
+
+    People type the sequence they were told to press, commas and all. Rejecting
+    that and printing a terse hint is how someone ends up pasting "1,2,3,4,5"
+    into cmd.exe by mistake -- which is exactly what happened in rehearsal.
+    """
+    return re.findall(r"\d|[a-z]+", text.strip().lower())
 
 
 def main() -> None:
@@ -255,35 +274,73 @@ def main() -> None:
           f"  --  secret {a.secret!r}")
     print("  Start with 1. Then 2, 3, 4, 5 in order. Read what it tells you to say.")
 
+    def run_one(key: str) -> bool:
+        """Run one menu key. False means quit."""
+        if key == "1":
+            demo.start_all()
+        elif key == "2":
+            demo.beat_task()
+        elif key == "3":
+            demo.beat_spawn()
+        elif key == "4":
+            demo.beat_kill()
+        elif key == "5":
+            demo.beat_restart()
+        elif key == "6":
+            demo.show_health()
+        elif key == "7":
+            cfg = demo.peers["agent_a"]
+            url = f"http://{cfg['host']}:{cfg['port']}/"
+            print(f"  opening {url} -- confirm the corner reads 'live'")
+            import webbrowser
+            webbrowser.open(url)
+        elif key in ("q", "quit", "exit"):
+            return False
+        else:
+            print(f"  {key!r} is not on the menu. Type a number 1-7, "
+                  f"or 'a' for the whole demo, or 'q' to quit.")
+        return True
+
+    def pause(next_key: str) -> str:
+        """Hold before the next beat. The room sets the pace, not a timer.
+
+        Returns "go", "skip" or "stop".
+        """
+        try:
+            answer = input(f"\n  ready for step {next_key}? "
+                           f"[Enter to go, s to skip, q to stop]  ").strip().lower()
+        except EOFError:
+            return "go"
+        if answer.startswith("q"):
+            return "stop"
+        if answer.startswith("s"):
+            return "skip"
+        return "go"
+
     try:
         while True:
             print(MENU)
             try:
-                choice = input("  > ").strip().lower()
+                typed = input("  > ")
             except EOFError:
                 break
-            if choice == "1":
-                demo.start_all()
-            elif choice == "2":
-                demo.beat_task()
-            elif choice == "3":
-                demo.beat_spawn()
-            elif choice == "4":
-                demo.beat_kill()
-            elif choice == "5":
-                demo.beat_restart()
-            elif choice == "6":
-                demo.show_health()
-            elif choice == "7":
-                cfg = demo.peers["agent_a"]
-                url = f"http://{cfg['host']}:{cfg['port']}/"
-                print(f"  opening {url} -- confirm the corner reads 'live'")
-                import webbrowser
-                webbrowser.open(url)
-            elif choice in ("q", "quit", "exit"):
-                break
-            else:
-                print("  1-7 or q")
+
+            keys = parse_choice(typed)
+            if not keys:
+                continue
+            if keys == ["a"]:
+                keys = list(WHOLE_DEMO)
+
+            for i, key in enumerate(keys):
+                if len(keys) > 1 and i > 0:
+                    decision = pause(key)
+                    if decision == "stop":
+                        return
+                    if decision == "skip":
+                        print(f"  skipped {key}")
+                        continue
+                if not run_one(key):
+                    return
     finally:
         print("\n  stopping nodes ...")
         demo.stop_all()
