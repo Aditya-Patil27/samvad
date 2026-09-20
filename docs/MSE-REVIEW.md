@@ -178,10 +178,15 @@ MOCK_LLM=1 python -m pytest -q                    # 317 passing — worth showin
 
 ### The whole demo is one command
 
-```bash
-python scripts/demo.py             # local Ollama models
-python scripts/demo.py --mock      # fixed replies, no inference -- the fallback
 ```
+scripts\demo.bat                   # local Ollama models
+scripts\demo.bat --mock            # fixed replies, no inference -- the fallback
+```
+
+Double-clicking `scripts\demo.bat` works too. It runs the project's own Python
+(`.venv\Scripts\python.exe`) directly — do not use a bare `python scripts/demo.py`
+from cmd, which picks whichever interpreter is on PATH and will not have the
+project's packages.
 
 It starts all four nodes (each in its own window, so the audience sees four
 machines), then shows a menu:
