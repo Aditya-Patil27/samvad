@@ -32,8 +32,6 @@ from samvad.protocol import (
     Message,
     Performative,
     TaskStatus,
-    depth_of,
-    parent_of,
 )
 
 MAX_CONCURRENCY = 8   # rate limits arrive well before CPU limits

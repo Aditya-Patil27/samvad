@@ -109,14 +109,10 @@ defensible answer, and it is the one the design is actually built around.
 
 ## 3 · Where the project actually stands
 
-**22 of 27 definition-of-done items ticked = 81%.** 317 tests passing. Counted in
-demonstrable behaviours from [WORK.md](WORK.md), not in modules — the metric was
-chosen deliberately, because percent-of-modules rewards writing stubs.
-
-**CI's lint gate is red:** `ruff check src tests` reports two unused imports
-(`depth_of`, `parent_of`) in [`supervisor.py`](../src/samvad/supervisor.py). It is a
-two-line deletion, but that file is P2's — **Samarth, delete them and push before
-tomorrow.** Nobody should be showing a red badge to a panel over an unused import.
+**22 of 27 definition-of-done items ticked = 81%.** 317 tests passing, `ruff check
+src tests` clean — both gates CI runs are green. Counted in demonstrable behaviours
+from [WORK.md](WORK.md), not in modules; the metric was chosen deliberately, because
+percent-of-modules rewards writing stubs.
 
 What is **not** done, by owner. Say these plainly if asked; a known gap costs less
 than a claim that falls over under one question.
@@ -180,12 +176,81 @@ MOCK_LLM=1 python -m pytest -q                    # 317 passing — worth showin
       measured data" on the projector
 - [ ] `ollama list` shows the models pulled; run one warm-up prompt
 
+### Starting it — four terminals, in this order
+
+`SAMVAD_SECRET` must be **identical in all four terminals** or every message fails
+signature verification. Set it first, in each one:
+
 ```bash
-# four nodes, real local inference (MOCK_LLM=0 is what turns Ollama on)
-MOCK_LLM=0 python -m samvad.node --config config/peers.yaml --as agent_a --db a.db
+export SAMVAD_SECRET=samvad-demo          # same string in all four
+
+# b, c, d first -- then a, so nothing is talking to a port that is not open yet
 MOCK_LLM=0 python -m samvad.node --config config/peers.yaml --as agent_b --db b.db
 MOCK_LLM=0 python -m samvad.node --config config/peers.yaml --as agent_c --db c.db
 MOCK_LLM=0 python -m samvad.node --config config/peers.yaml --as agent_d --db d.db
+
+# agent_a last, and it opens the conversation on startup
+MOCK_LLM=0 python -m samvad.node --config config/peers.yaml --as agent_a --db a.db \
+    --task "Implement binary search over a sorted list" --to agent_b --delay 4
+```
+
+`MOCK_LLM=0` is what turns Ollama on; the default is `1` and runs the mock. Drop the
+`0` and the whole run is deterministic and instant, which is the fallback.
+
+**Verified on this machine tonight** (mock, four nodes): all four `/health` green,
+signed `POST /message` → 202, `/events` carrying `root_task` and `result`, Lamport
+99 → 101 across the pair, both logs identical.
+
+### Rehearsal findings — read these, they change how beats 3–5 are run
+
+**1 · `--task` cannot produce a fan-out — use the driver.** `--task` sends a
+`task_request`; children only come from a `spawn_request` carrying
+`payload.fan_out`. [`scripts/demo_drive.py`](../scripts/demo_drive.py) sends either,
+signed, into a running node:
+
+```bash
+export SAMVAD_SECRET=samvad-demo          # the same secret the nodes started with
+
+python scripts/demo_drive.py task  --to agent_b          # beat 2
+python scripts/demo_drive.py spawn --to agent_b --fan-out 3   # beat 3, then kill agent_b
+```
+
+Verified: the task came back `task_result ... complete`, the spawn produced three
+`spawn_ack`s with the budget sliced three ways (`turns_left=11` → `4`), and
+`agent_a` reported `children: 3`. Anything other than **202** means the secrets
+differ — that is the usual reason a node silently ignores everything.
+
+**2 · Kill each peer once, on freshly started nodes.** Verified: the first kill
+reparents correctly —
+
+```
+[agent_a] agent_b is down -- reparented 3 orphan(s) to agent_a: agent_b/worker_1, agent_b/worker_2, agent_b/worker_3
+```
+
+— but killing the *same* peer a second time in one session produces no second
+reparent line. `Node._reparented` is never cleared, so orphans already adopted are
+correctly not moved twice. **If you rehearse the kill, restart every node before the
+real thing.**
+
+**3 · The kill takes about 25 seconds, not six.** This is the most important number
+on this page. [DEMO.md](DEMO.md) says six — that was three probes at two seconds.
+Measured tonight on Windows loopback: the peer greyed out at **t = 26.4 s** after
+the kill. `PROBE_TIMEOUT` is 5 s and three consecutive failures are needed, so a
+probe that times out rather than being refused costs 3 × (5 + 2) ≈ 21 s.
+
+Both the terminal line and the dashboard strip do arrive. Plan the narration for
+**half a minute of silence** — explain the three-failure guard while you wait, and
+say plainly that one dropped packet on campus wifi must not look like a dead laptop.
+If that pause is too long to hold the room, P1 can drop `PROBE_TIMEOUT` in
+[`config.py`](../src/samvad/config.py) from `5.0` to `1.0`, which brings it to
+roughly 6–9 s — **but that is a code change on the day, so decide it tonight or not
+at all.**
+
+**4 · Restart-and-resume works exactly as advertised** — verified twice:
+
+```
+[agent_b] replayed 4 messages; lamport resumes at 65
+[agent_b] replayed 8 messages; lamport resumes at 85
 ```
 
 ### The run — about 8 minutes
@@ -195,7 +260,7 @@ MOCK_LLM=0 python -m samvad.node --config config/peers.yaml --as agent_d --db d.
 | 1 | **The claim** (1 min) | Aditya | `GET /health` on four ports. Four processes, four clocks, nothing shared. *"Most multi-agent demos are objects calling methods in one process. Every message you are about to see is signed and crosses a socket."* |
 | 2 | **One task end to end** (2 min) | Tejas drives, Samarth narrates | Office view: envelopes flying desk to desk, cost climbing, per-node context. Point at the **Lamport column ordering the log correctly** while the wall clocks disagree |
 | 3 | **Fan-out and budget** (1.5 min) | Samarth | The planner splits the work; executors run in parallel. Show the parent's slice divided among children, summing to the parent's. *"A branch that cannot afford one call cannot spawn. Recursion terminates by running out of money, not by hitting a counter."* |
-| 4 | **Kill a peer** (1.5 min) — the money shot | Aditya kills, Samarth narrates | Close `agent_b`'s terminal visibly. **It takes about six seconds** — each peer is probed every 2 s and three consecutive failures are needed, because one dropped packet is not a dead node. Say that while you wait; the pause is the guard working, not the demo hanging. Watch for `agent_b is down -- reparented N orphan(s)` |
+| 4 | **Kill a peer** (1.5 min) — the money shot | Aditya kills, Samarth narrates | Close `agent_b`'s terminal visibly. **It takes about 25 seconds** (measured, see finding 3) — three consecutive failed probes at a 5 s timeout, because one dropped packet is not a dead node. Fill the pause: it is the guard working, not the demo hanging. Watch for `agent_b is down -- reparented N orphan(s)` |
 | 5 | **Restart and resume** (1 min) | Sakshant | Restart the killed node **on the same `--db`**. It prints `replayed N messages; lamport resumes at M`. *"A node that restarts at zero reorders its own history."* Scope it honestly: this is restart-and-resume, not full partition-and-reconcile |
 | 6 | **The numbers** (1 min) | Tejas | The measured table below |
 
