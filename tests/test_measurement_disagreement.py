@@ -197,15 +197,17 @@ async def test_the_reviewer_sees_the_code_but_not_the_tests_or_the_exit_code(tmp
     await _run(tmp_path, factory, 2)
     reviewer, executor = factory.made["reviewer"][0], factory.made["executor"][0]
     assert reviewer.call_count == executor.call_count == 2
-    for prompt in reviewer.prompts:
-        payload = prompt["payload"]
+    for system, user in reviewer.prompts:
+        sent = json.loads(user["content"])
+        payload = sent["payload"]
         assert payload["code"] == BAD.strip()
         assert "exit_code" not in payload and "tests" not in payload
-        assert not any(line in json.dumps(payload) for line in TESTS)
-        assert prompt["root_task"] == "Add two integers", "root_task is copied verbatim"
-    for prompt in executor.prompts:
-        assert "tests" not in prompt["payload"]
-        assert not any(line in json.dumps(prompt["payload"]) for line in TESTS)
+        assert not any(line in json.dumps(payload) + system["content"] for line in TESTS)
+        assert sent["root_task"] == "Add two integers", "root_task is copied verbatim"
+    for system, user in executor.prompts:
+        payload = json.loads(user["content"])["payload"]
+        assert "tests" not in payload
+        assert not any(line in json.dumps(payload) + system["content"] for line in TESTS)
 
 
 async def test_fenced_and_think_wrapped_replies_are_read_not_defaulted(tmp_path):
@@ -239,7 +241,7 @@ async def test_a_reviewer_reported_exit_code_is_recorded(tmp_path):
 # ==========================================================================
 
 async def test_a_malformed_review_is_an_error_row_not_a_reject(tmp_path):
-    malformed = [_verdict("needs_revision", claims=[{"bogus": 1}]),
+    malformed = [json.dumps({"task_status": {"complete": True}, "result": "unhashable"}),
                  json.dumps({"task_status": ["complete"], "result": "unhashable"}),
                  _verdict("needs_revision")]
     rows, summary = await _run(tmp_path, Factory([_wrote(BAD)], malformed), 3)
@@ -250,8 +252,7 @@ async def test_a_malformed_review_is_an_error_row_not_a_reject(tmp_path):
 
 
 async def test_a_failed_execution_is_not_reviewed(tmp_path):
-    factory = Factory([json.dumps({"task_status": "complete", "result": GOOD,
-                                   "claims": [{"bogus": 1}]}), _wrote(GOOD)],
+    factory = Factory([json.dumps({"task_status": ["complete"], "result": GOOD}), _wrote(GOOD)],
                       [_verdict("complete")])
     rows, summary = await _run(tmp_path, factory, 2)
     assert rows[0]["error"].startswith("executor: ") and rows[0]["ground_truth"] == ""
@@ -260,7 +261,7 @@ async def test_a_failed_execution_is_not_reviewed(tmp_path):
 
 
 async def test_a_run_where_every_execution_fails_is_refused(tmp_path):
-    broken = json.dumps({"task_status": "complete", "result": "x", "claims": [{"bogus": 1}]})
+    broken = json.dumps({"task_status": ["complete"], "result": "x"})
     with pytest.raises(RuntimeError, match="every executor call"):
         await _run(tmp_path, Factory([broken], [_verdict("complete")]), 2)
 

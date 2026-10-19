@@ -87,6 +87,70 @@ async def test_every_reply_reports_its_own_cost():
             assert reply.cost.model
 
 
+# --- what the model is actually shown ---------------------------------------
+
+
+async def _sent_prompt(role, **overrides):
+    llm = StubLLM()
+    await _handle(_agent(llm=llm, role=role), _make(**overrides))
+    assert llm.call_count == 1
+    return llm.prompts[0]
+
+
+async def test_prompt_carries_the_role_instructions_as_a_system_message():
+    """A bare envelope is not an instruction. Shown one with nothing else, a
+    small model explains the JSON instead of doing the task."""
+    from samvad.agent import role_prompt
+
+    system, user = await _sent_prompt("executor")
+    assert system["role"] == "system"
+    assert role_prompt("executor").strip() in system["content"]
+    assert user["role"] == "user"
+
+
+async def test_prompt_names_the_reply_fields_the_runtime_reads():
+    """_parse and _arbitrate read these keys. A model never told them answers
+    in prose, and the exit-code check then has nothing to check."""
+    system, _ = await _sent_prompt(None)
+    for key in ("result", "task_status", "exit_code", "claims", "evidence_type"):
+        assert key in system["content"]
+
+
+async def test_prompt_puts_root_task_in_verbatim():
+    root = "Implement two-sum.  Keep   the   spacing."
+    _, user = await _sent_prompt("executor", root_task=root)
+    assert root in user["content"]
+
+
+def test_every_configured_role_has_a_prompt():
+    from samvad.agent import role_prompt
+
+    for role in ("planner", "executor", "reviewer", "verifier"):
+        assert role_prompt(role)
+
+
+async def test_a_fenced_json_reply_is_still_read_as_json():
+    """Small models wrap JSON in a ```json fence nearly every time."""
+    from samvad.protocol import TaskStatus
+
+    reply = '```json\n{"result": "def two_sum(): ...", "task_status": "uncertain"}\n```'
+    replies = await _handle(_agent(llm=StubLLM(replies=[reply])), _make())
+    assert replies[0].payload["result"] == "def two_sum(): ..."
+    assert replies[0].task_status == TaskStatus.UNCERTAIN
+
+
+async def test_a_malformed_claim_is_dropped_not_raised():
+    """An LLM reply is untrusted input. One claim missing `evidence` must not
+    cost the whole result."""
+    reply = (
+        '{"result": "done", "claims": ['
+        '{"claim": "no evidence", "evidence_type": "model_prior"},'
+        '{"claim": "ok", "evidence": "none ran", "evidence_type": "model_prior"}]}'
+    )
+    replies = await _handle(_agent(llm=StubLLM(replies=[reply])), _make())
+    assert [c.claim for c in replies[0].claims] == ["ok"]
+
+
 # --- the hallucination control ----------------------------------------------
 
 

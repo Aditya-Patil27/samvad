@@ -127,7 +127,10 @@ class Node:
         self.log = MessageLog(db or ":memory:")
         self.blobs = BlobStore(db or ":memory:")
         self.model = self.peers[name].get("model", "mock")
-        self.agent = Agent(agent_path=name, clock=self.clock, model=self.model)
+        self.agent = Agent(
+            agent_path=name, clock=self.clock, model=self.model,
+            role=self.peers[name].get("role"),
+        )
         self.transport = LanTransport(self.peers, secret=self.secret)
 
         # Peer liveness. Injectable so the failover contract test can drive

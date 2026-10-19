@@ -6,6 +6,7 @@ ClaudeBackend whose client is a stub with an async `messages.create`.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from typing import Any
 
@@ -52,21 +53,26 @@ def test_the_minimum_is_per_model() -> None:
     assert "under claude-haiku-4-5's minimum of 4096" in problem
 
 
-def test_the_role_prompt_alone_is_under_every_minimum() -> None:
-    role = (Path(cache_check.__file__).parent.parent / "src" / "samvad" / "prompts"
-            / "executor.md").read_text(encoding="utf-8")
+def test_the_agents_own_system_turn_is_under_every_minimum() -> None:
     for model in cache_check.MIN_CACHEABLE_TOKENS:
-        [problem] = cache_check.check(*cache_check.agent_prompts(role), model=model)
+        [problem] = cache_check.check(*cache_check.agent_prompts(), model=model)
         assert "under" in problem
 
 
 def test_agent_prompts_come_from_the_agent_and_share_root_task() -> None:
+    role = (Path(cache_check.__file__).parent.parent / "src" / "samvad" / "prompts"
+            / f"{cache_check.ROLE}.md").read_text(encoding="utf-8")
     first, second = cache_check.agent_prompts()
-    assert first["root_task"] == second["root_task"] == cache_check.ROOT_TASK
-    assert first["turn"] != second["turn"]
+    assert first[0] == second[0] and role.strip() in first[0]["content"]
+    a, b = (json.loads(p[-1]["content"]) for p in (first, second))
+    assert a["root_task"] == b["root_task"] == cache_check.ROOT_TASK
+    assert a["turn"] != b["turn"]
 
 
 def test_a_system_file_goes_above_the_agent_prompt(tmp_path: Path) -> None:
+    first, _ = cache_check.agent_prompts(LONG)
+    assert [t["role"] for t in first] == ["system", "system", "user"]
+    assert first[0]["content"] == LONG
     (tmp_path / "s.md").write_text(LONG, encoding="utf-8")
     assert cache_check.main(["--system-file", str(tmp_path / "s.md")]) == 0
     (tmp_path / "short.md").write_text("Be brief.", encoding="utf-8")

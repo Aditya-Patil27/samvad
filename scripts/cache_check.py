@@ -17,8 +17,9 @@ Offline, it builds two consecutive turns of one conversation with the agent's
 own `_prompt`, turns each into the request llm/claude.py would send, and checks
 what can be checked without the API: is there a breakpoint, is everything above
 it byte-identical across the two turns, and is it over the model's minimum.
-`--system-file` puts a system turn of your own above the agent's prompt, to
-check the plumbing before the agent sends one.
+The agent's system turn is its role prompt and reply contract, so that is the
+prefix. `--system-file` puts a system turn of your own above it, to see how much
+longer the prefix must be before it caches.
 
 --live sends those two requests and reads usage.cache_read_input_tokens off the
 second. It refuses to spend anything when the offline check already says the
@@ -41,7 +42,7 @@ from typing import Any
 
 from samvad.agent import Agent, usd_for
 from samvad.llm import PaidBackendRefused, backend_for
-from samvad.llm.base import Usage, render_prompt
+from samvad.llm.base import Usage
 from samvad.llm.claude import DEFAULT_MODEL, RATES_USD_PER_MTOK, ClaudeError, _request
 
 #: Below these the breakpoint is ignored, with no error. From llm/claude.py.
@@ -61,6 +62,7 @@ CHARS_PER_TOKEN = 3
 LIVE_MAX_TOKENS = 512
 
 ROOT_TASK = "Implement a binary search function"  # experiments/tasks.json, t01
+ROLE = "executor"  # agent_b's role in config/peers.yaml
 
 
 def _turn(turn: int, performative: str, payload: dict[str, Any]) -> SimpleNamespace:
@@ -78,15 +80,15 @@ TURNS = (
 def agent_prompts(system: str | None = None) -> list[Any]:
     """Two consecutive turns, prompted by the agent's own code.
 
-    `Agent._prompt` uses nothing of the agent, so it is called unbound on
-    stand-ins. If it starts needing more, this fails loudly, which is the point:
-    a copy of it here would go on passing after the real one changed.
+    `Agent._prompt` uses nothing of the agent but its role, so it is called
+    unbound on stand-ins. If it starts needing more, this fails loudly, which is
+    the point: a copy of it here would go on passing after the real one changed.
     """
-    prompts = [Agent._prompt(None, t) for t in TURNS]  # type: ignore[arg-type]
+    agent = SimpleNamespace(role=ROLE)
+    prompts = [Agent._prompt(agent, t) for t in TURNS]  # type: ignore[arg-type]
     if system is None:
         return prompts
-    return [[{"role": "system", "content": system},
-             {"role": "user", "content": render_prompt(p)}] for p in prompts]
+    return [[{"role": "system", "content": system}, *p] for p in prompts]
 
 
 def cached_prefix(request: dict[str, Any]) -> list[dict[str, Any]] | None:

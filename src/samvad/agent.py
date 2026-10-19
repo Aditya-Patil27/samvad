@@ -13,9 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import UTC, datetime
+from functools import cache
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+from pydantic import ValidationError
 
 from samvad.budget import CircuitBreaker, can_afford, slice_budget
 from samvad.clock import LamportClock
@@ -58,6 +63,34 @@ MODEL_RATES: dict[str, tuple[float, float]] = {
 #: recoverable, allowing one that does not is how a tree overruns a budget.
 ESTIMATED_CALL_USD = 0.02
 
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+#: The keys _parse and _arbitrate read, stated once for every role. A model
+#: never told them answers in prose, and then the exit-code check has nothing
+#: to check -- so this is part of the runtime contract, not a role's style.
+REPLY_CONTRACT = """You receive one protocol message as JSON. `root_task` is the overall goal,
+verbatim. `payload` holds your part of it (usually `subtask`) and any earlier
+result. Do the work; do not describe the message.
+
+Reply with ONE JSON object and nothing else:
+{
+  "result": "<your answer: the code, the plan, or the review>",
+  "task_status": "complete" | "needs_revision" | "uncertain",
+  "exit_code": <integer, ONLY if you actually ran something>,
+  "claims": [{"claim": "...", "evidence": "...",
+              "evidence_type": "test_output" | "file_content" | "peer_report" | "model_prior"}]
+}
+Nothing ran? Omit exit_code and label your claims model_prior."""
+
+
+@cache
+def role_prompt(role: str | None) -> str:
+    """prompts/<role>.md, or "" for a role with no file."""
+    if not role or not re.fullmatch(r"[a-z0-9_]+", role):
+        return ""
+    path = PROMPTS_DIR / f"{role}.md"
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
 
 def usd_for(usage: Any) -> float:
     rate_in, rate_out = MODEL_RATES.get(getattr(usage, "model", ""), (0.0, 0.0))
@@ -75,10 +108,12 @@ class Agent:
         model: str | None = None,
         clock: LamportClock | None = None,
         breaker: CircuitBreaker | None = None,
+        role: str | None = None,
     ) -> None:
         self.llm = llm if llm is not None else _default_backend(model)
         self.agent_path = agent_path
         self.model = model
+        self.role = role
         self.clock = clock or LamportClock()
         self.breaker = breaker or CircuitBreaker()
         self.supervisor = Supervisor(agent_path or "unknown")
@@ -294,7 +329,7 @@ class Agent:
                     "result": advisory.get("result", completion.text),
                     **({"exit_code": advisory["exit_code"]} if "exit_code" in advisory else {}),
                 },
-                claims=[Claim(**c) for c in advisory.get("claims", []) if isinstance(c, dict)],
+                claims=_claims(advisory.get("claims")),
                 cost=Cost(
                     input=completion.usage.input,
                     output=completion.usage.output,
@@ -326,20 +361,26 @@ class Agent:
             return TaskStatus.NEEDS_REVISION
         return status
 
-    def _prompt(self, msg: Message) -> dict[str, Any]:
-        """root_task goes in verbatim, every turn.
+    def _prompt(self, msg: Message) -> list[dict[str, str]]:
+        """[system, user]: the role and reply contract, then the message.
 
-        Never paraphrased and never summarised: by turn six, an agent that only
-        ever saw a paraphrase is solving a different problem, and nothing in
-        the transcript will say when it changed.
+        root_task goes in verbatim, every turn. Never paraphrased and never
+        summarised: by turn six, an agent that only ever saw a paraphrase is
+        solving a different problem, and nothing in the transcript will say
+        when it changed.
         """
-        return {
+        system = "\n\n".join(p for p in (role_prompt(self.role).strip(), REPLY_CONTRACT) if p)
+        message = {
             "root_task": msg.root_task,
             "performative": str(msg.performative),
             "payload": msg.payload,
             "artifacts": [a.model_dump() for a in msg.artifacts],
             "turn": msg.turn,
         }
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(message, sort_keys=True, default=repr)},
+        ]
 
     # --- envelope construction -------------------------------------------
 
@@ -390,11 +431,31 @@ def _parse(text: str) -> dict[str, Any]:
     answers in prose instead of JSON is a normal Tuesday, and it must degrade
     to "the text is the result" rather than raise inside the loop.
     """
+    if isinstance(text, str):
+        # Small models fence their JSON in ```json ... ``` nearly every time.
+        fenced = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", text, re.DOTALL)
+        if fenced:
+            text = fenced.group(1)
     try:
         parsed = json.loads(text)
     except (json.JSONDecodeError, TypeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _claims(raw: Any) -> list[Claim]:
+    """The model's claims, minus any that do not validate.
+
+    An LLM response is untrusted input: one claim missing `evidence` must cost
+    that claim, not the whole result.
+    """
+    claims = []
+    for c in raw if isinstance(raw, list) else []:
+        try:
+            claims.append(Claim.model_validate(c))
+        except ValidationError:
+            continue
+    return claims
 
 
 def _default_backend(model: str | None = None) -> Any:

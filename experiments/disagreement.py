@@ -37,7 +37,8 @@ Departures from the doc:
 * Its table names Claude. This project is free-only, so the defaults are local
   Ollama: `homo` llama3.2:3b twice, `hetero` llama3.2:3b reviewed by qwen3:8b.
 * `prompts/reviewer.md` starts from the test output, which a blind review cannot,
-  and `Agent` loads no prompt files, so role instructions ride in `payload`. So
+  so `Agent` is given no role here, loads no prompt file, and role instructions
+  ride in `payload`. So
   does the code: `Agent` does not hydrate `sha256:` refs. The CSV records the hash.
 * Replies are unwrapped by `experiments.replies` before `Agent` parses them
   (fenced, `<think>`-prefixed or prose-wrapped JSON would otherwise count as a
