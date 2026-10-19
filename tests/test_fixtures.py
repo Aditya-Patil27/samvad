@@ -274,6 +274,16 @@ def test_costs_are_plausible_and_only_on_results():
         assert m["cost"]["cache_read"] <= m["cost"]["input"]
 
 
+def test_paid_rates_match_the_ones_that_bill():
+    """A synthetic Opus 5 once cost three times the real one. The USD in
+    measurement 4 is priced from this table, so it must agree with agent's."""
+    from samvad.agent import MODEL_RATES
+
+    for model, rate in fixtures.MODEL_RATES.items():
+        if model.startswith("claude-"):
+            assert rate == MODEL_RATES[model], model
+
+
 def test_bad_parameters_are_rejected_at_the_boundary():
     import pytest
 
