@@ -281,8 +281,8 @@ P4 has nothing real to observe until week 2. So P4's week 1 is:
 - [x] `netcheck.py` reports pass/fail for every peer pair, run from any node
 - [x] Dashboard shows live message flow, per-node context usage, and a running USD total — context/children were hardcoded to zero in `node.py`, now wired to real `ContextTracker`/`Supervisor` state (2026-09-18)
 - [x] Dashboard renders from synthetic data with no node running, and from `/events` when one is
-- [ ] All five experiments run from a single command and emit CSV — all five are implemented and each writes CSV to `results/` (`disagreement.py` MOCK-checked; its real Ollama run is pending); no single command runs all five yet
-- [ ] Every plot in the report regenerates from that CSV — no hand-made numbers — no `docs/RESULTS.md` or plotting code exists yet
+- [x] All five experiments run from a single command and emit CSV — `python -m experiments` runs all five, writes CSV to `results/`, then redraws the figures; a failing measurement is named and does not stop the rest. Not covered by it: transport `lan` (needs the four laptops, run by hand) and the real Ollama run of `disagreement.py` (MOCK-checked only) (2026-10-19)
+- [x] Every plot in the report regenerates from that CSV — no hand-made numbers — `python -m experiments.plots` redraws all five SVGs in `docs/figures/` and the tables in `docs/RESULTS.md` from the summary CSVs, stamped with each CSV's sha and seed; `tests/test_plots.py` checks the table cells against the CSV (2026-10-19)
 - [x] CI runs contract tests on every PR
 
 ### Does not touch
