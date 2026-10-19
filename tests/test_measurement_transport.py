@@ -26,6 +26,8 @@ What these tests defend:
 """
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -204,8 +206,12 @@ async def test_run_writes_both_csvs_into_the_results_dir(tmp_path):
         assert column in header
 
 
-async def test_a_run_below_the_doc_floor_is_refused():
+async def test_a_run_below_the_doc_floor_is_refused(tmp_path):
     """docs/EXPERIMENTS.md: 'Minimum 20 tasks per condition. Below that you are
     reporting noise.' The floor is overridable, but never by accident."""
+    path = tmp_path / "tasks.json"
+    path.write_text(json.dumps([{"id": f"t{i}", "task": "x", "constraints": []}
+                                for i in range(3)]), encoding="utf-8")
     with pytest.raises(ValueError, match="20"):
-        await transport.run(conditions=("inproc",), repeat=1, secret=SECRET, write=False)
+        await transport.run(conditions=("inproc",), repeat=1, secret=SECRET, write=False,
+                            tasks_path=str(path))
