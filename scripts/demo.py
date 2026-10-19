@@ -48,7 +48,7 @@ NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
 #: and three consecutive failures are required.
 DEATH_WAIT_SECONDS = 45
 
-TASK = "Implement binary search over a sorted list"
+TASK = os.environ.get("SAMVAD_DEMO_TASK") or "Implement binary search over a sorted list"
 
 
 class Demo:
