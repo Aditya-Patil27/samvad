@@ -232,11 +232,11 @@ Idempotency is split: **P3 stores** (`seen()`), **P1 decides** (return the cache
 ### Definition of done
 
 - [x] The same bytes stored twice produce one blob and the same ref
-- [ ] `GET /blob/{hash}` returns bytes; an unknown hash returns 404 — route exists and the store-level `.get()→None` path is tested, but no test calls it over HTTP yet
+- [x] `GET /blob/{hash}` returns bytes; an unknown hash returns 404 — `tests/contract/test_blob_route.py` calls the route over ASGI: stored bytes come back byte-identical, bare hex and `sha256:` forms both resolve, unknown and malformed hashes return 404 (2026-10-19)
 - [x] Killing an agent mid-conversation and restarting replays the log and resumes correctly — `node.restore()` replays in `(lamport, sender)` order on boot and resumes the clock. Verified live: a restart on the same `--db` logged `replayed 4 messages; lamport resumes at 41`. **Requires `--db`** — the default store is in-memory and has nothing to replay (2026-09-20)
 - [x] `used()` matches the API's reported input tokens within 5% — structural: `ContextTracker.observe()` stores the backend's reported figure verbatim, now wired into `Agent`/`node.py` (2026-09-18)
 - [x] `should_send_full()` returns `False` when the peer reports above 90%
-- [ ] A conversation exceeding the hot-tier limit compacts without losing the `root_task` — `Compactor` implements this correctly but has zero tests exercising it
+- [x] A conversation exceeding the hot-tier limit compacts without losing the `root_task` — `tests/contract/test_compact.py` compacts a signed 14-message conversation past `HOT_TURNS` = 6: `root_task` stays byte-identical on every message, the hot tier is verbatim, and only `payload` is replaced (2026-10-19)
 
 ### Does not touch
 
