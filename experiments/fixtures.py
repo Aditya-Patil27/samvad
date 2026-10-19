@@ -48,9 +48,10 @@ PEERS: tuple[str, ...] = ("agent_a", "agent_b", "agent_c", "agent_d")
 DISPLAY_ONLY = ("type", "child", "note", "dashed")
 
 #: USD per 1M tokens (input, output). Local models are free, which is the point
-#: of measurement 5 running one.
+#: of measurement 5 running one. A claude-* row must equal samvad.agent's, which
+#: is what bills -- tests/test_fixtures.py holds them equal.
 MODEL_RATES: dict[str, tuple[float, float]] = {
-    "claude-opus-5": (15.0, 75.0),
+    "claude-opus-5": (5.0, 25.0),
     "claude-haiku-4-5": (1.0, 5.0),
     "ollama:qwen2.5-coder": (0.0, 0.0),
 }

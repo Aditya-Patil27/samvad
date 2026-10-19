@@ -191,7 +191,13 @@ class OllamaBackend:
 
     async def complete(self, prompt: Any) -> Completion:
         if _is_chat_prompt(prompt):
-            path, payload, text_of = "/api/chat", {"messages": prompt}, _chat_text
+            # The chat shape is the agent's, and it carries a JSON reply
+            # contract. Asked in words, a 3B model still drops a comma; with
+            # format=json ollama constrains decoding to valid JSON. think=False:
+            # qwen3 thinks by default (measured 100s vs 5.8s for one reply),
+            # and the thinking never reaches the envelope.
+            path, text_of = "/api/chat", _chat_text
+            payload = {"messages": prompt, "format": "json", "think": False}
         else:
             path, payload = "/api/generate", {"prompt": render_prompt(prompt)}
             text_of = _generate_text

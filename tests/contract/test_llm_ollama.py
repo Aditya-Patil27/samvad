@@ -171,6 +171,35 @@ async def test_a_chat_shaped_prompt_goes_to_the_chat_endpoint():
     assert completion.usage.output == 3
 
 
+async def test_a_chat_prompt_asks_ollama_for_json():
+    """The chat shape is what the agent sends, with a JSON reply contract. A 3B
+    model asked for JSON in words still drops a comma; format=json cannot."""
+    backend, sent = recording_backend({"message": {"content": "{}"}, "done": True})
+
+    await backend.complete([{"role": "system", "content": "Reply with JSON."}])
+
+    assert json.loads(sent[0].content)["format"] == "json"
+
+
+async def test_a_chat_prompt_turns_thinking_off():
+    """qwen3 thinks by default: measured 100s for a 2-sum reply, 5.8s without.
+    The thinking never reaches the envelope, so it is pure latency."""
+    backend, sent = recording_backend({"message": {"content": "{}"}, "done": True})
+
+    await backend.complete([{"role": "system", "content": "Reply with JSON."}])
+
+    assert json.loads(sent[0].content)["think"] is False
+
+
+async def test_a_string_prompt_is_not_forced_into_json():
+    """Forced JSON on a prompt that never mentions it pads with whitespace."""
+    backend, sent = recording_backend()
+
+    await backend.complete("review this")
+
+    assert "format" not in json.loads(sent[0].content)
+
+
 # --- malformed and truncated responses --------------------------------------
 
 

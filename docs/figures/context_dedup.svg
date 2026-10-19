@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="246" viewBox="0 0 720 246" role="img" aria-label="What passing artifacts by ref saves">
+<title>What passing artifacts by ref saves</title><desc>Median per task under refs, as a share of the same median inline. results/context_dedup_summary.csv · sha b315fbc · 2026-10-19 · network none-synthetic</desc>
+<style>
+svg { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.bg { fill: #fcfcfb; }
+.ink { fill: #0b0b0b; } .ink2 { fill: #52514e; } .muted { fill: #898781; }
+.grid { stroke: #e1e0d9; stroke-width: 1; } .axis { stroke: #c3c2b7; stroke-width: 1; }
+.s1 { fill: #2a78d6; stroke: #2a78d6; } .s2 { fill: #eb6834; stroke: #eb6834; } .s3 { fill: #1baf7a; stroke: #1baf7a; }
+@media (prefers-color-scheme: dark) {
+  .bg { fill: #1a1a19; }
+  .ink { fill: #f0efec; } .ink2 { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; } .axis { stroke: #383835; }
+  .s1 { fill: #3987e5; stroke: #3987e5; } .s2 { fill: #d95926; stroke: #d95926; } .s3 { fill: #199e70; stroke: #199e70; }
+}
+/* Mark shape after both colour blocks: same specificity, so order decides. */
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.bar { stroke: none; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+.halo { paint-order: stroke; stroke: #fcfcfb; stroke-width: 4; stroke-linejoin: round; }
+@media (prefers-color-scheme: dark) { .ring, .halo { stroke: #1a1a19; } }
+</style>
+<rect class="bg" width="720" height="246" rx="8"/>
+<text x="24.0" y="32.0" class="ink" font-size="16" text-anchor="start" font-weight="600">What passing artifacts by ref saves</text>
+<text x="24.0" y="52.0" class="ink2" font-size="12" text-anchor="start" font-weight="400">Median per task under refs, as a share of the same median inline</text>
+<line class="grid" x1="174.0" y1="66.0" x2="174.0" y2="194.0"/>
+<text x="174.0" y="210.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">0%</text>
+<line class="grid" x1="293.0" y1="66.0" x2="293.0" y2="194.0"/>
+<text x="293.0" y="210.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">25%</text>
+<line class="grid" x1="412.0" y1="66.0" x2="412.0" y2="194.0"/>
+<text x="412.0" y="210.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">50%</text>
+<line class="grid" x1="531.0" y1="66.0" x2="531.0" y2="194.0"/>
+<text x="531.0" y="210.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">75%</text>
+<line class="grid" x1="650.0" y1="66.0" x2="650.0" y2="194.0"/>
+<text x="650.0" y="210.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">100%</text>
+<line class="axis" x1="650.0" y1="62.0" x2="650.0" y2="194.0" stroke-width="2"/>
+<text x="646.0" y="60.0" class="ink2" font-size="11" text-anchor="end" font-weight="400">inline = 100%</text>
+<text x="164.0" y="84.0" class="ink" font-size="12" text-anchor="end" font-weight="400">input tokens</text>
+<path class="s1 bar" d="M174.0,72.0 H636.7 A4.0,4.0 0 0 1 640.7,76.0 V84.0 A4.0,4.0 0 0 1 636.7,88.0 H174.0 Z"><title>input tokens · refs: 98%</title></path>
+<text x="646.7" y="84.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">98%</text>
+<text x="164.0" y="118.0" class="ink" font-size="12" text-anchor="end" font-weight="400">receiver peak context</text>
+<path class="s1 bar" d="M174.0,106.0 H635.8 A4.0,4.0 0 0 1 639.8,110.0 V118.0 A4.0,4.0 0 0 1 635.8,122.0 H174.0 Z"><title>receiver peak context · refs: 98%</title></path>
+<text x="645.8" y="118.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">98%</text>
+<text x="164.0" y="152.0" class="ink" font-size="12" text-anchor="end" font-weight="400">bytes on wire</text>
+<path class="s1 bar" d="M174.0,140.0 H570.8 A4.0,4.0 0 0 1 574.8,144.0 V152.0 A4.0,4.0 0 0 1 570.8,156.0 H174.0 Z"><title>bytes on wire · refs: 84%</title></path>
+<text x="580.8" y="152.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">84%</text>
+<text x="164.0" y="186.0" class="ink" font-size="12" text-anchor="end" font-weight="400">cost (USD)</text>
+<path class="s1 bar" d="M174.0,174.0 H621.8 A4.0,4.0 0 0 1 625.8,178.0 V186.0 A4.0,4.0 0 0 1 621.8,190.0 H174.0 Z"><title>cost (USD) · refs: 95%</title></path>
+<text x="631.8" y="186.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">95%</text>
+<line class="axis" x1="174.0" y1="66.0" x2="174.0" y2="194.0"/>
+<text x="24.0" y="232.0" class="muted" font-size="11" text-anchor="start" font-weight="400">results/context_dedup_summary.csv · sha b315fbc · 2026-10-19 · network none-synthetic</text>
+</svg>

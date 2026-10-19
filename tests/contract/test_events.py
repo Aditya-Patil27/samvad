@@ -24,7 +24,8 @@ from samvad import events
 # is dead weight on the wire; a frame missing one of these silently degrades.
 NODE_KEYS = {"type", "agent", "model", "up", "context", "children", "budget_usd"}
 MESSAGE_KEYS = {"type", "lamport", "sender", "receiver", "performative",
-                "task_status", "cost", "child", "note", "dashed"}
+                "task_status", "cost", "child", "note", "dashed",
+                "root_task", "result", "exit_code"}
 
 
 class FakeMessage:
@@ -147,6 +148,59 @@ def test_message_frame_keeps_the_full_agent_path():
     Truncating here would throw away which child sent it."""
     frame = events.message_frame(envelope_dict(sender="agent_b/worker_2"))
     assert frame["sender"] == "agent_b/worker_2"
+
+
+def test_message_frame_carries_the_root_task():
+    """The office whiteboard titles itself with the task; the audit table's Task
+    column reads m.root_task. Both were blank on a live stream."""
+    frame = events.message_frame(envelope_dict(root_task="Implement binary search"))
+    assert frame["root_task"] == "Implement binary search"
+
+
+def test_message_frame_carries_the_result_text_and_exit_code():
+    """A task_result is only proof of work if a person can read what it said.
+    `payload.result` is the model's answer; `exit_code` is the runtime's verdict."""
+    frame = events.message_frame(envelope_dict(
+        performative="task_result", task_status="complete",
+        payload={"result": "def binary_search(a, t): ...", "exit_code": 0},
+    ))
+    assert frame["result"] == "def binary_search(a, t): ..."
+    assert frame["exit_code"] == 0
+    assert set(frame) <= MESSAGE_KEYS
+
+
+def test_message_frame_omits_result_and_exit_code_when_the_payload_has_none():
+    frame = events.message_frame(envelope_dict(payload={"subtask": "x", "constraints": []}))
+    assert "result" not in frame
+    assert "exit_code" not in frame
+    assert "root_task" not in frame
+
+
+def test_message_frame_clips_a_runaway_result():
+    """One frame per message, up to 256 buffered per browser. A model that
+    returns a novel must not turn the stream into a firehose."""
+    frame = events.message_frame(envelope_dict(payload={"result": "x" * 50_000}))
+    assert len(frame["result"]) == events.RESULT_CHARS
+    assert frame["result"].endswith("…"), "a clipped result says so"
+
+
+def test_message_frame_clips_a_runaway_root_task():
+    frame = events.message_frame(envelope_dict(root_task="t" * 5_000))
+    assert len(frame["root_task"]) == events.ROOT_TASK_CHARS
+
+
+def test_message_frame_serialises_a_structured_result():
+    """`result` is whatever the model's JSON held. The dashboard renders text,
+    so a dict must arrive as text rather than as [object Object]."""
+    frame = events.message_frame(envelope_dict(payload={"result": {"index": 3}}))
+    assert json.loads(frame["result"]) == {"index": 3}
+
+
+def test_message_frame_ignores_a_boolean_exit_code():
+    """bool is an int in Python; `True` reaching the wire as exit code 1 would
+    read as a failed run."""
+    frame = events.message_frame(envelope_dict(payload={"exit_code": True}))
+    assert "exit_code" not in frame
 
 
 def test_message_frame_lamport_is_an_int():

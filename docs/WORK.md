@@ -103,12 +103,12 @@ Nothing. P1 is the root. This is why P1 is the critical path and why P1 does not
 
 ### Definition of done
 
-- [ ] Two nodes exchange a signed message over LAN; both logs show matching `message_id` and correctly ordered Lamport clocks
-- [ ] A duplicate `message_id` returns the cached response and does **not** trigger a second handler call
-- [ ] A message with a bad signature is rejected with 401 and logged
-- [ ] A message older than the replay window is rejected
-- [ ] `resolve("agent_b/worker_2/checker_1")` routes to peer `agent_b`
-- [ ] `POST /message` returns 202 in under 50 ms while a 30-second LLM call is in flight
+- [x] Two nodes exchange a signed message over LAN; both logs show matching `message_id` and correctly ordered Lamport clocks
+- [x] A duplicate `message_id` returns the cached response and does **not** trigger a second handler call
+- [x] A message with a bad signature is rejected with 401 and logged
+- [x] A message older than the replay window is rejected
+- [x] `resolve("agent_b/worker_2/checker_1")` routes to peer `agent_b`
+- [x] `POST /message` returns 202 in under 50 ms while a 30-second LLM call is in flight
 
 ### Does not touch
 
@@ -168,15 +168,15 @@ A dict-backed fake blob store and `MockLLM`. Do not wait for P3.
 
 ### Definition of done
 
-- [ ] `handle()` on a `task_request` returns a well-formed `task_result` under `MOCK_LLM=1`, no network
-- [ ] A parent spawning 4 children slices its budget so the four slices sum to exactly the parent's
-- [ ] A branch whose slice cannot afford one call returns `spawn_refused`, not a crash
-- [ ] `max_depth` is enforced — a depth-4 spawn under `max_depth: 3` is refused
-- [ ] Concurrency semaphore caps in-flight LLM calls at 8 per node
-- [ ] 429 responses retry with exponential backoff
-- [ ] Killing a parent mid-fan-out reparents orphans; their results still arrive
-- [ ] `run_sandboxed` kills an infinite loop at the timeout and returns a non-zero exit code
-- [ ] A reviewer cannot set `task_status: complete` when `exit_code != 0` — enforced in code, not in the prompt
+- [x] `handle()` on a `task_request` returns a well-formed `task_result` under `MOCK_LLM=1`, no network
+- [x] A parent spawning 4 children slices its budget so the four slices sum to exactly the parent's
+- [x] A branch whose slice cannot afford one call returns `spawn_refused`, not a crash
+- [x] `max_depth` is enforced — a depth-4 spawn under `max_depth: 3` is refused
+- [x] Concurrency semaphore caps in-flight LLM calls at 8 per node — `Agent.llm_slots`, an `asyncio.Semaphore(MAX_CONCURRENCY)` around the only `llm.complete()` call, taken only after the budget check passes; the ninth call waits, it is not refused. A node is one `Agent`, so one cap per node. `tests/contract/test_llm_cap.py`: 20 concurrent tasks peak at exactly 8 in flight and all finish, and `POST /message` still returns 202 (2026-10-19)
+- [x] 429 responses retry with exponential backoff
+- [x] Killing a parent mid-fan-out reparents orphans; their results still arrive — `node.py` now polls each peer every 2 s and calls `orphans_of()` → `reparent()` → `adopt()` on the transition into dead (3 consecutive failed probes). The grandparent learns of remote children from the `agent_path` already carried in `spawn_ack`'s payload. Verified live: a killed `agent_b` logged `reparented 3 orphan(s)` on `agent_a`, and a `child_result` from `agent_b/worker_1` was still accepted afterwards (2026-09-20)
+- [x] `run_sandboxed` kills an infinite loop at the timeout and returns a non-zero exit code
+- [x] A reviewer cannot set `task_status: complete` when `exit_code != 0` — enforced in code, not in the prompt
 
 That last one is the anti-hallucination guarantee. It is a code path, not a request to the model.
 
@@ -231,12 +231,12 @@ Idempotency is split: **P3 stores** (`seen()`), **P1 decides** (return the cache
 
 ### Definition of done
 
-- [ ] The same bytes stored twice produce one blob and the same ref
-- [ ] `GET /blob/{hash}` returns bytes; an unknown hash returns 404
-- [ ] Killing an agent mid-conversation and restarting replays the log and resumes correctly
-- [ ] `used()` matches the API's reported input tokens within 5%
-- [ ] `should_send_full()` returns `False` when the peer reports above 90%
-- [ ] A conversation exceeding the hot-tier limit compacts without losing the `root_task`
+- [x] The same bytes stored twice produce one blob and the same ref
+- [x] `GET /blob/{hash}` returns bytes; an unknown hash returns 404 — `tests/contract/test_blob_route.py` calls the route over ASGI: stored bytes come back byte-identical, bare hex and `sha256:` forms both resolve, unknown and malformed hashes return 404 (2026-10-19)
+- [x] Killing an agent mid-conversation and restarting replays the log and resumes correctly — `node.restore()` replays in `(lamport, sender)` order on boot and resumes the clock. Verified live: a restart on the same `--db` logged `replayed 4 messages; lamport resumes at 41`. **Requires `--db`** — the default store is in-memory and has nothing to replay (2026-09-20)
+- [x] `used()` matches the API's reported input tokens within 5% — structural: `ContextTracker.observe()` stores the backend's reported figure verbatim, now wired into `Agent`/`node.py` (2026-09-18)
+- [x] `should_send_full()` returns `False` when the peer reports above 90%
+- [x] A conversation exceeding the hot-tier limit compacts without losing the `root_task` — `tests/contract/test_compact.py` compacts a signed 14-message conversation past `HOT_TURNS` = 6: `root_task` stays byte-identical on every message, the hot tier is verbatim, and only `payload` is replaced (2026-10-19)
 
 ### Does not touch
 
@@ -278,12 +278,12 @@ P4 has nothing real to observe until week 2. So P4's week 1 is:
 
 ### Definition of done
 
-- [ ] `netcheck.py` reports pass/fail for every peer pair, run from any node
-- [ ] Dashboard shows live message flow, per-node context usage, and a running USD total
-- [ ] Dashboard renders from synthetic data with no node running, and from `/events` when one is
-- [ ] All five experiments run from a single command and emit CSV
-- [ ] Every plot in the report regenerates from that CSV — no hand-made numbers
-- [ ] CI runs contract tests on every PR
+- [x] `netcheck.py` reports pass/fail for every peer pair, run from any node
+- [x] Dashboard shows live message flow, per-node context usage, and a running USD total — context/children were hardcoded to zero in `node.py`, now wired to real `ContextTracker`/`Supervisor` state (2026-09-18)
+- [x] Dashboard renders from synthetic data with no node running, and from `/events` when one is
+- [x] All five experiments run from a single command and emit CSV — `python -m experiments` runs all five, writes CSV to `results/`, then redraws the figures; a failing measurement is named and does not stop the rest. Not covered by it: transport `lan` (needs the four laptops, run by hand) and the real Ollama run of `disagreement.py` (MOCK-checked only) (2026-10-19)
+- [x] Every plot in the report regenerates from that CSV — no hand-made numbers — `python -m experiments.plots` redraws all five SVGs in `docs/figures/` and the tables in `docs/RESULTS.md` from the summary CSVs, stamped with each CSV's sha and seed; `tests/test_plots.py` checks the table cells against the CSV (2026-10-19)
+- [x] CI runs contract tests on every PR
 
 ### Does not touch
 

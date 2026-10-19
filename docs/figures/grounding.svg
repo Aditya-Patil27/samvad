@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="338" viewBox="0 0 720 338" role="img" aria-label="Grounded claims, direct and through peer_report chains">
+<title>Grounded claims, direct and through peer_report chains</title><desc>Share of claims whose evidence is a test run or a file read. results/grounding_summary.csv · sha b315fbc · 2026-10-19 · network none-synthetic</desc>
+<style>
+svg { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.bg { fill: #fcfcfb; }
+.ink { fill: #0b0b0b; } .ink2 { fill: #52514e; } .muted { fill: #898781; }
+.grid { stroke: #e1e0d9; stroke-width: 1; } .axis { stroke: #c3c2b7; stroke-width: 1; }
+.s1 { fill: #2a78d6; stroke: #2a78d6; } .s2 { fill: #eb6834; stroke: #eb6834; } .s3 { fill: #1baf7a; stroke: #1baf7a; }
+@media (prefers-color-scheme: dark) {
+  .bg { fill: #1a1a19; }
+  .ink { fill: #f0efec; } .ink2 { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; } .axis { stroke: #383835; }
+  .s1 { fill: #3987e5; stroke: #3987e5; } .s2 { fill: #d95926; stroke: #d95926; } .s3 { fill: #199e70; stroke: #199e70; }
+}
+/* Mark shape after both colour blocks: same specificity, so order decides. */
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.bar { stroke: none; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+.halo { paint-order: stroke; stroke: #fcfcfb; stroke-width: 4; stroke-linejoin: round; }
+@media (prefers-color-scheme: dark) { .ring, .halo { stroke: #1a1a19; } }
+</style>
+<rect class="bg" width="720" height="338" rx="8"/>
+<text x="24.0" y="32.0" class="ink" font-size="16" text-anchor="start" font-weight="600">Grounded claims, direct and through peer_report chains</text>
+<text x="24.0" y="52.0" class="ink2" font-size="12" text-anchor="start" font-weight="400">Share of claims whose evidence is a test run or a file read</text>
+<rect class="s1 bar" x="24.0" y="64" width="10" height="10" rx="2"/>
+<text x="39.0" y="73.0" class="ink2" font-size="12" text-anchor="start" font-weight="400">direct</text>
+<rect class="s2 bar" x="100.2" y="64" width="10" height="10" rx="2"/>
+<text x="115.2" y="73.0" class="ink2" font-size="12" text-anchor="start" font-weight="400">transitive</text>
+<line class="grid" x1="174.0" y1="86.0" x2="174.0" y2="286.0"/>
+<text x="174.0" y="302.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">0%</text>
+<line class="grid" x1="293.0" y1="86.0" x2="293.0" y2="286.0"/>
+<text x="293.0" y="302.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">25%</text>
+<line class="grid" x1="412.0" y1="86.0" x2="412.0" y2="286.0"/>
+<text x="412.0" y="302.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">50%</text>
+<line class="grid" x1="531.0" y1="86.0" x2="531.0" y2="286.0"/>
+<text x="531.0" y="302.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">75%</text>
+<line class="grid" x1="650.0" y1="86.0" x2="650.0" y2="286.0"/>
+<text x="650.0" y="302.0" class="muted" font-size="11" text-anchor="middle" font-weight="400">100%</text>
+<text x="164.0" y="113.0" class="ink" font-size="12" text-anchor="end" font-weight="400">all</text>
+<path class="s1 bar" d="M174.0,92.0 H412.3 A4.0,4.0 0 0 1 416.3,96.0 V104.0 A4.0,4.0 0 0 1 412.3,108.0 H174.0 Z"><title>all · direct: 51%</title></path>
+<text x="422.3" y="104.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">51%</text>
+<path class="s2 bar" d="M174.0,110.0 H478.7 A4.0,4.0 0 0 1 482.7,114.0 V122.0 A4.0,4.0 0 0 1 478.7,126.0 H174.0 Z"><title>all · transitive: 65%</title></path>
+<text x="488.7" y="122.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">65%</text>
+<text x="164.0" y="165.0" class="ink" font-size="12" text-anchor="end" font-weight="400">executor</text>
+<path class="s1 bar" d="M174.0,144.0 H574.6 A4.0,4.0 0 0 1 578.6,148.0 V156.0 A4.0,4.0 0 0 1 574.6,160.0 H174.0 Z"><title>executor · direct: 85%</title></path>
+<text x="584.6" y="156.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">85%</text>
+<path class="s2 bar" d="M174.0,162.0 H586.5 A4.0,4.0 0 0 1 590.5,166.0 V174.0 A4.0,4.0 0 0 1 586.5,178.0 H174.0 Z"><title>executor · transitive: 88%</title></path>
+<text x="596.5" y="174.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">88%</text>
+<text x="164.0" y="217.0" class="ink" font-size="12" text-anchor="end" font-weight="400">planner</text>
+<path class="s1 bar" d="M174.0,196.0 H272.0 A4.0,4.0 0 0 1 276.0,200.0 V208.0 A4.0,4.0 0 0 1 272.0,212.0 H174.0 Z"><title>planner · direct: 21%</title></path>
+<text x="282.0" y="208.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">21%</text>
+<path class="s2 bar" d="M174.0,214.0 H272.0 A4.0,4.0 0 0 1 276.0,218.0 V226.0 A4.0,4.0 0 0 1 272.0,230.0 H174.0 Z"><title>planner · transitive: 21%</title></path>
+<text x="282.0" y="226.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">21%</text>
+<text x="164.0" y="269.0" class="ink" font-size="12" text-anchor="end" font-weight="400">reviewer</text>
+<path class="s1 bar" d="M174.0,248.0 H409.9 A4.0,4.0 0 0 1 413.9,252.0 V260.0 A4.0,4.0 0 0 1 409.9,264.0 H174.0 Z"><title>reviewer · direct: 50%</title></path>
+<text x="419.9" y="260.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">50%</text>
+<path class="s2 bar" d="M174.0,266.0 H496.3 A4.0,4.0 0 0 1 500.3,270.0 V278.0 A4.0,4.0 0 0 1 496.3,282.0 H174.0 Z"><title>reviewer · transitive: 69%</title></path>
+<text x="506.3" y="278.0" class="ink2 halo" font-size="11" text-anchor="start" font-weight="400">69%</text>
+<line class="axis" x1="174.0" y1="86.0" x2="174.0" y2="286.0"/>
+<text x="24.0" y="324.0" class="muted" font-size="11" text-anchor="start" font-weight="400">results/grounding_summary.csv · sha b315fbc · 2026-10-19 · network none-synthetic</text>
+</svg>

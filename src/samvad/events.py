@@ -15,7 +15,10 @@ which fields are read:
 
     data: {"type":"message","lamport":14,"sender":"agent_a","receiver":"agent_b",
            "performative":"task_request","task_status":"in_progress",
-           "cost":{"usd":0.0031}}
+           "cost":{"usd":0.0031},"root_task":"Implement binary search",
+           "result":"def binary_search(...)","exit_code":0}
+
+`root_task`, `result` and `exit_code` are present only when the envelope has them.
 
 Input is duck-typed on purpose -- a plain mapping off P3's log, or anything
 with the matching attributes. This module does NOT import the envelope, so it
@@ -46,6 +49,18 @@ BUFFER = 256
 
 KEEPALIVE_SECONDS = 15.0
 """Idle gap after which a comment is sent so proxies keep the socket open."""
+
+ROOT_TASK_CHARS = 300
+"""Longest root_task a frame carries. It titles the whiteboard; it is not a log."""
+
+RESULT_CHARS = 6000
+"""Longest task result a frame carries. Enough for a function and its test;
+short of a novel, because 256 frames can be buffered per connected browser."""
+
+
+def _clip(text: str, limit: int) -> str:
+    """`text` cut to `limit` characters, the last being an ellipsis when cut."""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 # ---- field access -----------------------------------------------------------
@@ -99,9 +114,26 @@ def message_frame(msg: Any) -> dict[str, Any]:
 
     # The dashboard draws an on-device branch from `m.child`. `spawn_ack`
     # carries the path as payload.agent_path -- read, never invented.
-    child = _field(_field(msg, "payload"), "agent_path")
+    payload = _field(msg, "payload")
+    child = _field(payload, "agent_path")
     if child:
         frame["child"] = str(child)
+
+    # What the office whiteboard and the audit detail show: the task, the
+    # model's answer, and the runtime's verdict on it. Clipped, not summarised --
+    # the reader should see what the model actually said.
+    root_task = _field(msg, "root_task")
+    if root_task:
+        frame["root_task"] = _clip(str(root_task), ROOT_TASK_CHARS)
+
+    result = _field(payload, "result")
+    if result not in (None, ""):
+        text = result if isinstance(result, str) else json.dumps(result, default=str)
+        frame["result"] = _clip(text, RESULT_CHARS)
+
+    exit_code = _field(payload, "exit_code")
+    if isinstance(exit_code, int) and not isinstance(exit_code, bool):
+        frame["exit_code"] = exit_code
 
     return frame
 

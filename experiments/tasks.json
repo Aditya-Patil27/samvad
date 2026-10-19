@@ -1,8 +1,573 @@
 [
-  {"id": "t01", "task": "Implement a binary search function",
-   "constraints": ["O(log n)", "Python 3.11", "pytest"]},
-  {"id": "t02", "task": "Write a function that flattens an arbitrarily nested list",
-   "constraints": ["no recursion limit issues", "pytest"]},
-  {"id": "t03", "task": "Implement an LRU cache with a fixed capacity",
-   "constraints": ["O(1) get and put", "pytest"]}
+  {
+    "id": "t01",
+    "task": "Implement a binary search function",
+    "constraints": [
+      "O(log n)",
+      "Python 3.11",
+      "pytest"
+    ],
+    "function": "binary_search",
+    "signature": "binary_search(items: list[int], target: int) -> int  # items is sorted ascending; index of target, or -1 if absent",
+    "tests": [
+      "assert binary_search([1, 3, 5, 7, 9], 1) == 0",
+      "assert binary_search([1, 3, 5, 7, 9], 9) == 4",
+      "assert binary_search([1, 3, 5, 7, 9], 5) == 2",
+      "assert binary_search([1, 3, 5, 7, 9, 11], 11) == 5",
+      "assert binary_search([4], 4) == 0",
+      "assert binary_search([1, 3, 5, 7, 9], 4) == -1",
+      "assert binary_search([1, 3, 5, 7, 9], 10) == -1",
+      "assert binary_search([1, 3, 5, 7, 9], 0) == -1",
+      "assert binary_search([], 3) == -1",
+      "assert binary_search(list(range(0, 2000, 2)), 1234) == 617"
+    ]
+  },
+  {
+    "id": "t02",
+    "task": "Write a function that flattens an arbitrarily nested list",
+    "constraints": [
+      "no recursion limit issues",
+      "pytest"
+    ],
+    "function": "flatten",
+    "signature": "flatten(nested: list) -> list  # only lists are flattened; strings and other values are kept as-is",
+    "tests": [
+      "assert list(flatten([1, [2, [3, [4]], 5]])) == [1, 2, 3, 4, 5]",
+      "assert list(flatten([])) == []",
+      "assert list(flatten([[], [[]], [[], [1]]])) == [1]",
+      "assert list(flatten(['ab', ['cd']])) == ['ab', 'cd']",
+      "deep = [7]",
+      "for _ in range(5000):",
+      "    deep = [deep]",
+      "assert list(flatten(deep)) == [7]"
+    ]
+  },
+  {
+    "id": "t03",
+    "task": "Implement an LRU cache with a fixed capacity",
+    "constraints": [
+      "O(1) get and put",
+      "pytest"
+    ],
+    "function": "LRUCache",
+    "signature": "LRUCache(capacity: int) with get(key) -> value and put(key, value) -> None  # get on a missing key returns -1; put evicts the least recently used key",
+    "tests": [
+      "c = LRUCache(2)",
+      "c.put(1, 'a')",
+      "c.put(2, 'b')",
+      "assert c.get(1) == 'a'",
+      "c.put(3, 'c')",
+      "assert c.get(2) == -1",
+      "assert c.get(3) == 'c'",
+      "c.put(1, 'A')",
+      "c.put(4, 'd')",
+      "assert c.get(1) == 'A'",
+      "assert c.get(3) == -1",
+      "assert c.get(4) == 'd'",
+      "one = LRUCache(1)",
+      "one.put('x', 1)",
+      "one.put('y', 2)",
+      "assert one.get('x') == -1",
+      "assert one.get('y') == 2"
+    ]
+  },
+  {
+    "id": "t04",
+    "task": "Write a function that reports whether a string is a palindrome, ignoring case and every character that is not a letter or digit",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "is_palindrome",
+    "signature": "is_palindrome(text: str) -> bool",
+    "tests": [
+      "assert is_palindrome('A man, a plan, a canal: Panama') is True",
+      "assert is_palindrome('race a car') is False",
+      "assert is_palindrome('') is True",
+      "assert is_palindrome(\"No 'x' in Nixon\") is True",
+      "assert is_palindrome('ab') is False",
+      "assert is_palindrome('12321') is True"
+    ]
+  },
+  {
+    "id": "t05",
+    "task": "Return the FizzBuzz sequence from 1 to n as a list of strings: 'Fizz' for multiples of 3, 'Buzz' for multiples of 5, 'FizzBuzz' for multiples of both, otherwise the number itself",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "fizzbuzz",
+    "signature": "fizzbuzz(n: int) -> list[str]",
+    "tests": [
+      "assert fizzbuzz(5) == ['1', '2', 'Fizz', '4', 'Buzz']",
+      "assert fizzbuzz(15)[-1] == 'FizzBuzz'",
+      "assert fizzbuzz(15)[8] == 'Fizz'",
+      "assert fizzbuzz(0) == []",
+      "assert len(fizzbuzz(100)) == 100",
+      "assert fizzbuzz(30)[29] == 'FizzBuzz'"
+    ]
+  },
+  {
+    "id": "t06",
+    "task": "Count word frequencies in a text. A word is a maximal run of ASCII letters; every other character separates words. Counting is case-insensitive and the keys are lowercase",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "word_count",
+    "signature": "word_count(text: str) -> dict[str, int]",
+    "tests": [
+      "assert word_count('The cat and the hat.') == {'the': 2, 'cat': 1, 'and': 1, 'hat': 1}",
+      "assert word_count('') == {}",
+      "assert word_count('Hello, hello... HELLO!') == {'hello': 3}",
+      "assert word_count('one-two  three') == {'one': 1, 'two': 1, 'three': 1}",
+      "assert word_count('a1b') == {'a': 1, 'b': 1}"
+    ]
+  },
+  {
+    "id": "t07",
+    "task": "Given a list of integers and a target, return the indices (i, j) with i < j of two different positions whose values sum to the target, or None if there is no such pair. Inputs contain at most one valid pair",
+    "constraints": [
+      "O(n)",
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "two_sum",
+    "signature": "two_sum(nums: list[int], target: int) -> tuple[int, int] | None",
+    "tests": [
+      "assert two_sum([2, 7, 11, 15], 9) == (0, 1)",
+      "assert two_sum([3, 2, 4], 6) == (1, 2)",
+      "assert two_sum([3, 3], 6) == (0, 1)",
+      "assert two_sum([5], 10) is None",
+      "assert two_sum([1, 2, 3], 7) is None",
+      "assert two_sum([1, 5, 9], 10) == (0, 2)"
+    ]
+  },
+  {
+    "id": "t08",
+    "task": "Merge overlapping intervals. The input is a list of [start, end] pairs in any order; intervals that overlap or touch (one ends where the next starts) merge. Return the merged intervals sorted by start",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "merge_intervals",
+    "signature": "merge_intervals(intervals: list[list[int]]) -> list[list[int]]",
+    "tests": [
+      "assert [list(p) for p in merge_intervals([[1, 3], [2, 6], [8, 10], [15, 18]])] == [[1, 6], [8, 10], [15, 18]]",
+      "assert [list(p) for p in merge_intervals([[1, 4], [4, 5]])] == [[1, 5]]",
+      "assert list(merge_intervals([])) == []",
+      "assert [list(p) for p in merge_intervals([[8, 10], [1, 3], [2, 6]])] == [[1, 6], [8, 10]]",
+      "assert [list(p) for p in merge_intervals([[1, 10], [2, 3]])] == [[1, 10]]"
+    ]
+  },
+  {
+    "id": "t09",
+    "task": "Convert a Roman numeral (I, V, X, L, C, D, M, including subtractive pairs such as IV and CM) to an integer",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "roman_to_int",
+    "signature": "roman_to_int(numeral: str) -> int",
+    "tests": [
+      "assert roman_to_int('III') == 3",
+      "assert roman_to_int('IV') == 4",
+      "assert roman_to_int('IX') == 9",
+      "assert roman_to_int('LVIII') == 58",
+      "assert roman_to_int('MCMXCIV') == 1994",
+      "assert roman_to_int('MMMCMXCIX') == 3999"
+    ]
+  },
+  {
+    "id": "t10",
+    "task": "Convert an integer from 1 to 3999 to a Roman numeral, using the subtractive forms IV, IX, XL, XC, CD and CM",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "int_to_roman",
+    "signature": "int_to_roman(number: int) -> str",
+    "tests": [
+      "assert int_to_roman(1) == 'I'",
+      "assert int_to_roman(4) == 'IV'",
+      "assert int_to_roman(9) == 'IX'",
+      "assert int_to_roman(58) == 'LVIII'",
+      "assert int_to_roman(1994) == 'MCMXCIV'",
+      "assert int_to_roman(3999) == 'MMMCMXCIX'"
+    ]
+  },
+  {
+    "id": "t11",
+    "task": "Report whether every bracket in a string is closed in the right order. The brackets are (), [] and {}; every other character is ignored",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "is_balanced",
+    "signature": "is_balanced(text: str) -> bool",
+    "tests": [
+      "assert is_balanced('') is True",
+      "assert is_balanced('([]{})') is True",
+      "assert is_balanced('a(b[c]d)e') is True",
+      "assert is_balanced('([)]') is False",
+      "assert is_balanced('((') is False",
+      "assert is_balanced('())') is False",
+      "assert is_balanced('}{') is False"
+    ]
+  },
+  {
+    "id": "t12",
+    "task": "Return the greatest common divisor of two integers. Either input may be negative or zero; the result is never negative, and the gcd of 0 and 0 is 0",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "gcd",
+    "signature": "gcd(a: int, b: int) -> int",
+    "tests": [
+      "assert gcd(12, 18) == 6",
+      "assert gcd(17, 5) == 1",
+      "assert gcd(0, 9) == 9",
+      "assert gcd(9, 0) == 9",
+      "assert gcd(0, 0) == 0",
+      "assert gcd(-12, 18) == 6",
+      "assert gcd(-4, -6) == 2"
+    ]
+  },
+  {
+    "id": "t13",
+    "task": "Report whether an integer is prime. Integers below 2 are not prime",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "is_prime",
+    "signature": "is_prime(n: int) -> bool",
+    "tests": [
+      "assert is_prime(2) is True",
+      "assert is_prime(3) is True",
+      "assert is_prime(1) is False",
+      "assert is_prime(0) is False",
+      "assert is_prime(-7) is False",
+      "assert is_prime(9) is False",
+      "assert is_prime(25) is False",
+      "assert is_prime(97) is True",
+      "assert is_prime(7919) is True",
+      "assert is_prime(7917) is False"
+    ]
+  },
+  {
+    "id": "t14",
+    "task": "Return the n-th Fibonacci number, where fibonacci(0) is 0 and fibonacci(1) is 1. fibonacci(90) must return without noticeable delay",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "fibonacci",
+    "signature": "fibonacci(n: int) -> int",
+    "tests": [
+      "assert fibonacci(0) == 0",
+      "assert fibonacci(1) == 1",
+      "assert fibonacci(2) == 1",
+      "assert fibonacci(10) == 55",
+      "assert fibonacci(90) == 2880067194370816120"
+    ]
+  },
+  {
+    "id": "t15",
+    "task": "Rotate a square matrix 90 degrees clockwise and return the result as a new list of rows, leaving the input unchanged",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "rotate_matrix",
+    "signature": "rotate_matrix(matrix: list[list[int]]) -> list[list[int]]",
+    "tests": [
+      "m = [[1, 2], [3, 4]]",
+      "assert [list(r) for r in rotate_matrix(m)] == [[3, 1], [4, 2]]",
+      "assert m == [[1, 2], [3, 4]]",
+      "assert [list(r) for r in rotate_matrix([[1, 2, 3], [4, 5, 6], [7, 8, 9]])] == [[7, 4, 1], [8, 5, 2], [9, 6, 3]]",
+      "assert list(rotate_matrix([])) == []",
+      "assert [list(r) for r in rotate_matrix([[5]])] == [[5]]"
+    ]
+  },
+  {
+    "id": "t16",
+    "task": "Split a list into consecutive chunks of a given size; the last chunk may be shorter. Raise ValueError if the size is less than 1",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "chunk",
+    "signature": "chunk(items: list, size: int) -> list[list]",
+    "tests": [
+      "assert [list(c) for c in chunk([1, 2, 3, 4, 5], 2)] == [[1, 2], [3, 4], [5]]",
+      "assert [list(c) for c in chunk([1, 2, 3, 4], 2)] == [[1, 2], [3, 4]]",
+      "assert list(chunk([], 3)) == []",
+      "assert [list(c) for c in chunk([1, 2], 5)] == [[1, 2]]",
+      "try:",
+      "    chunk([1, 2], 0)",
+      "    raise AssertionError('size 0 accepted')",
+      "except ValueError:",
+      "    pass"
+    ]
+  },
+  {
+    "id": "t17",
+    "task": "Run-length encode a string: each run of one repeated character becomes the character followed by the length of the run, so 'aaabcc' becomes 'a3b1c2'",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "run_length_encode",
+    "signature": "run_length_encode(text: str) -> str",
+    "tests": [
+      "assert run_length_encode('aaabcc') == 'a3b1c2'",
+      "assert run_length_encode('') == ''",
+      "assert run_length_encode('a') == 'a1'",
+      "assert run_length_encode('aaaaaaaaaaaa') == 'a12'",
+      "assert run_length_encode('abca') == 'a1b1c1a1'"
+    ]
+  },
+  {
+    "id": "t18",
+    "task": "Caesar-shift every ASCII letter of a string by a number of positions, wrapping within the alphabet and preserving case; leave every other character unchanged. The shift may be negative or larger than 26",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "caesar_cipher",
+    "signature": "caesar_cipher(text: str, shift: int) -> str",
+    "tests": [
+      "assert caesar_cipher('abc', 1) == 'bcd'",
+      "assert caesar_cipher('xyz', 3) == 'abc'",
+      "assert caesar_cipher('Hello, World!', 5) == 'Mjqqt, Btwqi!'",
+      "assert caesar_cipher('abc', -1) == 'zab'",
+      "assert caesar_cipher('abc', 27) == 'bcd'",
+      "assert caesar_cipher('', 4) == ''"
+    ]
+  },
+  {
+    "id": "t19",
+    "task": "Report whether two strings are anagrams of each other, ignoring case and spaces",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "are_anagrams",
+    "signature": "are_anagrams(a: str, b: str) -> bool",
+    "tests": [
+      "assert are_anagrams('listen', 'silent') is True",
+      "assert are_anagrams('Dormitory', 'dirty room') is True",
+      "assert are_anagrams('aab', 'abb') is False",
+      "assert are_anagrams('abc', 'abcd') is False",
+      "assert are_anagrams('', '') is True"
+    ]
+  },
+  {
+    "id": "t20",
+    "task": "Return the median of a non-empty list of numbers without modifying the list; for an even count return the mean of the two middle values",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "median",
+    "signature": "median(nums: list[float]) -> float",
+    "tests": [
+      "assert median([3, 1, 2]) == 2",
+      "assert median([4, 1, 3, 2]) == 2.5",
+      "assert median([7]) == 7",
+      "data = [5, 3, 1, 4]",
+      "assert median(data) == 3.5",
+      "assert data == [5, 3, 1, 4]",
+      "assert median([-1, -3, -2, -4]) == -2.5"
+    ]
+  },
+  {
+    "id": "t21",
+    "task": "Return the second largest distinct value in a list of numbers, or None if the list holds fewer than two distinct values",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "second_largest",
+    "signature": "second_largest(nums: list[int]) -> int | None",
+    "tests": [
+      "assert second_largest([3, 1, 4, 1, 5]) == 4",
+      "assert second_largest([5, 5, 3]) == 3",
+      "assert second_largest([2, 2]) is None",
+      "assert second_largest([]) is None",
+      "assert second_largest([-1, -2]) == -2"
+    ]
+  },
+  {
+    "id": "t22",
+    "task": "Return the longest prefix shared by every string in a list, or the empty string for an empty list",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "longest_common_prefix",
+    "signature": "longest_common_prefix(strings: list[str]) -> str",
+    "tests": [
+      "assert longest_common_prefix(['flower', 'flow', 'flight']) == 'fl'",
+      "assert longest_common_prefix(['dog', 'racecar', 'car']) == ''",
+      "assert longest_common_prefix([]) == ''",
+      "assert longest_common_prefix(['solo']) == 'solo'",
+      "assert longest_common_prefix(['interview', 'internet', 'in']) == 'in'",
+      "assert longest_common_prefix(['abc', 'abd', 'xbc']) == ''"
+    ]
+  },
+  {
+    "id": "t23",
+    "task": "Remove duplicates from a list, keeping the first occurrence of each value in its original order",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "dedupe",
+    "signature": "dedupe(items: list) -> list",
+    "tests": [
+      "assert dedupe([3, 1, 3, 2, 1]) == [3, 1, 2]",
+      "assert dedupe([]) == []",
+      "assert dedupe(['b', 'a', 'b']) == ['b', 'a']",
+      "assert dedupe([1, 1, 1]) == [1]",
+      "assert dedupe([10, 9, 8, 7, 6, 5, 10]) == [10, 9, 8, 7, 6, 5]"
+    ]
+  },
+  {
+    "id": "t24",
+    "task": "Multiply two matrices given as lists of rows. Raise ValueError if the number of columns of the first does not equal the number of rows of the second",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "matrix_multiply",
+    "signature": "matrix_multiply(a: list[list[int]], b: list[list[int]]) -> list[list[int]]",
+    "tests": [
+      "assert matrix_multiply([[1, 2], [3, 4]], [[5, 6], [7, 8]]) == [[19, 22], [43, 50]]",
+      "assert matrix_multiply([[1, 2, 3]], [[4], [5], [6]]) == [[32]]",
+      "assert matrix_multiply([[2]], [[3]]) == [[6]]",
+      "try:",
+      "    matrix_multiply([[1, 2]], [[1, 2]])",
+      "    raise AssertionError('shape mismatch accepted')",
+      "except ValueError:",
+      "    pass"
+    ]
+  },
+  {
+    "id": "t25",
+    "task": "Return the Levenshtein edit distance between two strings, where an insertion, a deletion and a substitution each cost 1",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "levenshtein",
+    "signature": "levenshtein(a: str, b: str) -> int",
+    "tests": [
+      "assert levenshtein('kitten', 'sitting') == 3",
+      "assert levenshtein('', 'abc') == 3",
+      "assert levenshtein('abc', '') == 3",
+      "assert levenshtein('same', 'same') == 0",
+      "assert levenshtein('flaw', 'lawn') == 2",
+      "assert levenshtein('a', 'b') == 1"
+    ]
+  },
+  {
+    "id": "t26",
+    "task": "Report whether a year is a leap year in the Gregorian calendar",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "is_leap_year",
+    "signature": "is_leap_year(year: int) -> bool",
+    "tests": [
+      "assert is_leap_year(2024) is True",
+      "assert is_leap_year(2023) is False",
+      "assert is_leap_year(1900) is False",
+      "assert is_leap_year(2000) is True",
+      "assert is_leap_year(2100) is False",
+      "assert is_leap_year(1600) is True"
+    ]
+  },
+  {
+    "id": "t27",
+    "task": "Return the k most frequent values in a list, most frequent first, breaking ties by putting the smaller value first. If there are fewer than k distinct values, return all of them",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "top_k_frequent",
+    "signature": "top_k_frequent(nums: list[int], k: int) -> list[int]",
+    "tests": [
+      "assert top_k_frequent([1, 1, 1, 2, 2, 3], 2) == [1, 2]",
+      "assert top_k_frequent([4, 4, 5, 5, 6], 2) == [4, 5]",
+      "assert top_k_frequent([3, 1, 2], 2) == [1, 2]",
+      "assert top_k_frequent([7, 7, 8], 5) == [7, 8]",
+      "assert top_k_frequent([], 3) == []"
+    ]
+  },
+  {
+    "id": "t28",
+    "task": "Split one line of CSV into its fields. Fields are separated by commas; a field wrapped in double quotes may contain commas, and a doubled double quote inside it stands for one double quote. Return the fields without their surrounding quotes",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "parse_csv_line",
+    "signature": "parse_csv_line(line: str) -> list[str]",
+    "tests": [
+      "assert parse_csv_line('a,b,c') == ['a', 'b', 'c']",
+      "assert parse_csv_line('\"x,y\",z') == ['x,y', 'z']",
+      "assert parse_csv_line('\"say \"\"hi\"\"\",2') == ['say \"hi\"', '2']",
+      "assert parse_csv_line('a,,b') == ['a', '', 'b']",
+      "assert parse_csv_line('a,b,') == ['a', 'b', '']",
+      "assert parse_csv_line('one') == ['one']"
+    ]
+  },
+  {
+    "id": "t29",
+    "task": "Return the largest sum of any non-empty contiguous run of a non-empty list of integers",
+    "constraints": [
+      "O(n)",
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "max_subarray_sum",
+    "signature": "max_subarray_sum(nums: list[int]) -> int",
+    "tests": [
+      "assert max_subarray_sum([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == 6",
+      "assert max_subarray_sum([1]) == 1",
+      "assert max_subarray_sum([-3, -1, -2]) == -1",
+      "assert max_subarray_sum([5, -1, 5]) == 9"
+    ]
+  },
+  {
+    "id": "t30",
+    "task": "Order the nodes of a dependency graph. deps maps each node to the list of nodes it depends on; return a list holding every node, including nodes that appear only as dependencies, with each node after all of its dependencies. Raise ValueError if the dependencies contain a cycle",
+    "constraints": [
+      "Python 3.11",
+      "standard library only"
+    ],
+    "function": "topo_sort",
+    "signature": "topo_sort(deps: dict[str, list[str]]) -> list[str]",
+    "tests": [
+      "order = list(topo_sort({'app': ['lib', 'log'], 'lib': ['core'], 'log': ['core']}))",
+      "assert sorted(order) == ['app', 'core', 'lib', 'log']",
+      "assert order.index('core') < order.index('lib') < order.index('app')",
+      "assert order.index('log') < order.index('app')",
+      "assert list(topo_sort({})) == []",
+      "try:",
+      "    topo_sort({'a': ['b'], 'b': ['a']})",
+      "    raise AssertionError('cycle not detected')",
+      "except ValueError:",
+      "    pass",
+      "try:",
+      "    topo_sort({'a': ['a']})",
+      "    raise AssertionError('self-loop not detected')",
+      "except ValueError:",
+      "    pass"
+    ]
+  }
 ]

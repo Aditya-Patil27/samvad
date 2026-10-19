@@ -6,7 +6,9 @@ An LLM call takes 5-60s; a synchronous reply would leave the caller blocked
 until it timed out. Replies arrive later as new inbound messages.
 
 Routes:
+    GET  /             -> the dashboard, so its /events is same-origin
     POST /message      -> 202 {"accepted": message_id}
+    POST /task         -> 202, open a conversation from this node  (LOCALHOST ONLY)
     GET  /health       -> {"agent", "lamport", "children", "budget_usd"}
     GET  /peers        -> the peer table as this node sees it
     GET  /events       -> SSE stream                    (contributed by P4)
@@ -19,11 +21,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import ValidationError
 
 from samvad import config as peer_config
@@ -35,6 +39,17 @@ from samvad.store.log import MessageLog
 
 DEFAULT_PEERS = ("agent_a", "agent_b", "agent_c", "agent_d")
 
+#: Longest task POST /task accepts. It becomes root_task, copied verbatim into
+#: every message of the conversation, so an unbounded one is unbounded traffic.
+MAX_TASK_CHARS = 2000
+
+#: The dashboard, served from the node so its relative `EventSource("/events")`
+#: resolves to a real stream. Opened as a file:// URL it cannot reach any node,
+#: falls back to its synthetic run, and labels itself "not measured data" --
+#: which during a demo reads as the system being faked rather than the page
+#: being opened wrong. Repo root, next to src/: server.py -> samvad -> src -> .
+DASHBOARD_HTML = Path(__file__).resolve().parents[2] / "dashboard" / "index.html"
+
 
 def make_app(
     inbox: Callable[..., Awaitable[None]],
@@ -44,9 +59,11 @@ def make_app(
     secret: str | None = None,
     log: MessageLog | None = None,
     blobs: BlobStore | None = None,
+    submit_task: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> FastAPI:
     """Build the FastAPI app. `inbox` is called in the background, never awaited
-    inside the request handler."""
+    inside the request handler. `submit_task(task, to)` opens a conversation
+    from this node; without it POST /task is a 404."""
     app = FastAPI(title="samvad")
     app.state.agent = agent or os.environ.get("SAMVAD_AGENT", "agent_a")
     app.state.secret = secret if secret is not None else os.environ.get("SAMVAD_SECRET", "")
@@ -75,6 +92,8 @@ def make_app(
             return JSONResponse({"error": "unknown sender", "sender": msg.sender}, status_code=403)
 
         if not security.verify(msg, app.state.secret):
+            print(f"[{app.state.agent}] rejected: bad signature from {msg.sender!r} "
+                  f"(message_id={msg.message_id})", file=sys.stderr)
             return JSONResponse({"error": "signature"}, status_code=401)
 
         # THE SEAM: P3 stores (MessageLog.seen), P1 decides. Checked BEFORE
@@ -103,6 +122,41 @@ def make_app(
         # for a minute, and this must return in milliseconds.
         asyncio.get_running_loop().create_task(inbox(msg))
         return JSONResponse(response, status_code=202)
+
+    @app.post("/task")
+    async def post_task(request: Request) -> JSONResponse:
+        """Open a conversation from the dashboard: {"task": str, "to": peer?}.
+
+        LOCALHOST ONLY, for the same reason as /setup: the node binds 0.0.0.0
+        and this spends the operator's budget. The task is scheduled, never
+        awaited, so this returns 202 like POST /message. The answer arrives
+        later on /events. The signed message is built by the node, not here.
+        """
+        if submit_task is None:
+            return JSONResponse({"error": "this node does not accept tasks"}, status_code=404)
+        client = request.client.host if request.client else ""
+        if client not in ("127.0.0.1", "::1", "localhost"):
+            return JSONResponse(
+                {"error": "tasks can only be submitted from this machine",
+                 "client": client}, status_code=403)
+
+        body = await request.json()
+        task = body.get("task") if isinstance(body, dict) else None
+        if not isinstance(task, str) or not task.strip():
+            return JSONResponse({"error": "task must be a non-empty string"}, status_code=400)
+        task = task.strip()
+        if len(task) > MAX_TASK_CHARS:
+            return JSONResponse({"error": f"task longer than {MAX_TASK_CHARS} characters"},
+                                status_code=400)
+
+        others = [p for p in app.state.peers if p != app.state.agent]
+        to = body.get("to") or ("agent_b" if "agent_b" in others else (others[0] if others else ""))
+        if to not in others:
+            return JSONResponse({"error": "unknown target", "to": to, "peers": others},
+                                status_code=400)
+
+        asyncio.get_running_loop().create_task(submit_task(task, to))
+        return JSONResponse({"accepted": task, "to": to}, status_code=202)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
@@ -210,6 +264,19 @@ def make_app(
                 "self": name == app.state.agent,
             }
         return {"peers": results, "checked": len(results)}
+
+    @app.get("/")
+    async def dashboard() -> Response:
+        """The dashboard itself, so `/events` below is same-origin.
+
+        A 404 here rather than a raised error: a node whose checkout has no
+        dashboard/ is still a working node, and losing the inbox because a
+        static file is missing would be the wrong trade.
+        """
+        if not DASHBOARD_HTML.is_file():
+            return JSONResponse({"error": f"dashboard not found at {DASHBOARD_HTML}"},
+                                status_code=404)
+        return FileResponse(DASHBOARD_HTML, media_type="text/html")
 
     @app.get("/events")
     async def events() -> StreamingResponse:
