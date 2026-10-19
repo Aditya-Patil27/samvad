@@ -11,6 +11,7 @@ This is the single most effective hallucination control in the system.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -32,7 +33,7 @@ from samvad.protocol import (
     parent_of,
 )
 from samvad.store.context import ContextTracker
-from samvad.supervisor import Supervisor
+from samvad.supervisor import MAX_CONCURRENCY, Supervisor
 
 #: USD per million tokens, (input, output). Anthropic first-party API rates.
 #:
@@ -82,6 +83,11 @@ class Agent:
         self.breaker = breaker or CircuitBreaker()
         self.supervisor = Supervisor(agent_path or "unknown")
         self.context = ContextTracker(model=model or "mock")
+        # The node's LLM cap lives here because the node is one Agent: node.py
+        # builds exactly one, and every message the node receives -- its own,
+        # its children's, adopted orphans' -- is handled by it. Process-wide
+        # would be wrong: tests and in-proc runs host several nodes per process.
+        self.llm_slots = asyncio.Semaphore(MAX_CONCURRENCY)
 
     # --- the loop ---------------------------------------------------------
 
@@ -267,7 +273,11 @@ class Agent:
                 )
             ]
 
-        completion = await self.llm.complete(self._prompt(msg))
+        # The ninth call waits for a slot; it is never refused. Reached only
+        # after the branch proved it can pay, so a broke one is answered at
+        # once rather than queueing behind eight slow calls to be told no.
+        async with self.llm_slots:
+            completion = await self.llm.complete(self._prompt(msg))
         self.context.observe(completion.usage)
         cost_usd = usd_for(completion.usage)
         self.breaker.record(cost_usd)
