@@ -172,7 +172,7 @@ A dict-backed fake blob store and `MockLLM`. Do not wait for P3.
 - [x] A parent spawning 4 children slices its budget so the four slices sum to exactly the parent's
 - [x] A branch whose slice cannot afford one call returns `spawn_refused`, not a crash
 - [x] `max_depth` is enforced — a depth-4 spawn under `max_depth: 3` is refused
-- [ ] Concurrency semaphore caps in-flight LLM calls at 8 per node — `Supervisor.spawn()` caps tracked children at 8 and is correctly tested, but nothing caps concurrent `llm.complete()` calls directly; not the same guarantee yet
+- [x] Concurrency semaphore caps in-flight LLM calls at 8 per node — `Agent.llm_slots`, an `asyncio.Semaphore(MAX_CONCURRENCY)` around the only `llm.complete()` call, taken only after the budget check passes; the ninth call waits, it is not refused. A node is one `Agent`, so one cap per node. `tests/contract/test_llm_cap.py`: 20 concurrent tasks peak at exactly 8 in flight and all finish, and `POST /message` still returns 202 (2026-10-19)
 - [x] 429 responses retry with exponential backoff
 - [x] Killing a parent mid-fan-out reparents orphans; their results still arrive — `node.py` now polls each peer every 2 s and calls `orphans_of()` → `reparent()` → `adopt()` on the transition into dead (3 consecutive failed probes). The grandparent learns of remote children from the `agent_path` already carried in `spawn_ack`'s payload. Verified live: a killed `agent_b` logged `reparented 3 orphan(s)` on `agent_a`, and a `child_result` from `agent_b/worker_1` was still accepted afterwards (2026-09-20)
 - [x] `run_sandboxed` kills an infinite loop at the timeout and returns a non-zero exit code
