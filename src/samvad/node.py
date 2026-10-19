@@ -149,6 +149,7 @@ class Node:
             secret=self.secret,
             log=self.log,
             blobs=self.blobs,
+            submit_task=self.kick_off,
         )
 
     def _check_port_free(self, port: int) -> None:

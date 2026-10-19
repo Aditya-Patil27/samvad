@@ -8,6 +8,7 @@ until it timed out. Replies arrive later as new inbound messages.
 Routes:
     GET  /             -> the dashboard, so its /events is same-origin
     POST /message      -> 202 {"accepted": message_id}
+    POST /task         -> 202, open a conversation from this node  (LOCALHOST ONLY)
     GET  /health       -> {"agent", "lamport", "children", "budget_usd"}
     GET  /peers        -> the peer table as this node sees it
     GET  /events       -> SSE stream                    (contributed by P4)
@@ -38,6 +39,10 @@ from samvad.store.log import MessageLog
 
 DEFAULT_PEERS = ("agent_a", "agent_b", "agent_c", "agent_d")
 
+#: Longest task POST /task accepts. It becomes root_task, copied verbatim into
+#: every message of the conversation, so an unbounded one is unbounded traffic.
+MAX_TASK_CHARS = 2000
+
 #: The dashboard, served from the node so its relative `EventSource("/events")`
 #: resolves to a real stream. Opened as a file:// URL it cannot reach any node,
 #: falls back to its synthetic run, and labels itself "not measured data" --
@@ -54,9 +59,11 @@ def make_app(
     secret: str | None = None,
     log: MessageLog | None = None,
     blobs: BlobStore | None = None,
+    submit_task: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> FastAPI:
     """Build the FastAPI app. `inbox` is called in the background, never awaited
-    inside the request handler."""
+    inside the request handler. `submit_task(task, to)` opens a conversation
+    from this node; without it POST /task is a 404."""
     app = FastAPI(title="samvad")
     app.state.agent = agent or os.environ.get("SAMVAD_AGENT", "agent_a")
     app.state.secret = secret if secret is not None else os.environ.get("SAMVAD_SECRET", "")
@@ -115,6 +122,41 @@ def make_app(
         # for a minute, and this must return in milliseconds.
         asyncio.get_running_loop().create_task(inbox(msg))
         return JSONResponse(response, status_code=202)
+
+    @app.post("/task")
+    async def post_task(request: Request) -> JSONResponse:
+        """Open a conversation from the dashboard: {"task": str, "to": peer?}.
+
+        LOCALHOST ONLY, for the same reason as /setup: the node binds 0.0.0.0
+        and this spends the operator's budget. The task is scheduled, never
+        awaited, so this returns 202 like POST /message. The answer arrives
+        later on /events. The signed message is built by the node, not here.
+        """
+        if submit_task is None:
+            return JSONResponse({"error": "this node does not accept tasks"}, status_code=404)
+        client = request.client.host if request.client else ""
+        if client not in ("127.0.0.1", "::1", "localhost"):
+            return JSONResponse(
+                {"error": "tasks can only be submitted from this machine",
+                 "client": client}, status_code=403)
+
+        body = await request.json()
+        task = body.get("task") if isinstance(body, dict) else None
+        if not isinstance(task, str) or not task.strip():
+            return JSONResponse({"error": "task must be a non-empty string"}, status_code=400)
+        task = task.strip()
+        if len(task) > MAX_TASK_CHARS:
+            return JSONResponse({"error": f"task longer than {MAX_TASK_CHARS} characters"},
+                                status_code=400)
+
+        others = [p for p in app.state.peers if p != app.state.agent]
+        to = body.get("to") or ("agent_b" if "agent_b" in others else (others[0] if others else ""))
+        if to not in others:
+            return JSONResponse({"error": "unknown target", "to": to, "peers": others},
+                                status_code=400)
+
+        asyncio.get_running_loop().create_task(submit_task(task, to))
+        return JSONResponse({"accepted": task, "to": to}, status_code=202)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
