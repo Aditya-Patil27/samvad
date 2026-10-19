@@ -149,6 +149,38 @@ def _context_dedup(rows: Sequence[Row], caption: str) -> tuple[str, Table]:
     return svg, table
 
 
+def _rate_or_none(value: str) -> float | None:
+    """A summary rate; an empty cell is a zero denominator, drawn as no bar."""
+    return float(value) if value != "" else None
+
+
+def _rate_cell(value: str) -> str:
+    return _pct(float(value)) if value != "" else "--"
+
+
+def _disagreement(rows: Sequence[Row], caption: str) -> tuple[str, Table]:
+    mock = any(r["mock"] == "1" for r in rows)
+    svg = bar_chart(
+        title="Bad code the reviewer let through" + (" — MOCK, not a result" if mock else ""),
+        subtitle=("Canned replies, no model ran: this checks the pipeline and says nothing "
+                  "about models." if mock else
+                  "False accepts over code that failed its held-out tests, per pair."),
+        caption=caption,
+        categories=[r["condition"] for r in rows],
+        series=[Series("reviewer alone", [_rate_or_none(r["false_accept_rate"]) for r in rows]),
+                Series("after the runtime arbiter",
+                       [_rate_or_none(r["arbitrated_false_accept_rate"]) for r in rows])],
+        unit=_pct, x_max=1.0,
+    )
+    table = (("pair", "executor → reviewer", "reviews", "errors", "bad code", "caught",
+              "false accept", "false reject", "arbitrated false accept", "unparsed", "mock"),
+             [(r["condition"], f"{r['executor']} → {r['reviewer']}", r["n_tasks"], r["n_errors"],
+               r["n_bad"], _rate_cell(r["catch_rate"]), _rate_cell(r["false_accept_rate"]),
+               _rate_cell(r["false_reject_rate"]), _rate_cell(r["arbitrated_false_accept_rate"]),
+               r["n_review_unparsed"], "yes" if r["mock"] == "1" else "no") for r in rows])
+    return svg, table
+
+
 @dataclass(frozen=True)
 class Figure:
     name: str                 # docs/figures/<name>.svg
@@ -167,6 +199,8 @@ FIGURES: tuple[Figure, ...] = (
            "python -m experiments.grounding", _grounding),
     Figure("context_dedup", "4 — Context dedup effect", "context_dedup_summary",
            "python -m experiments.context_dedup", _context_dedup),
+    Figure("disagreement", "5 — Correlated error / disagreement rate", "disagreement_summary",
+           "python -m experiments.disagreement --pairs homo,hetero", _disagreement),
 )
 
 

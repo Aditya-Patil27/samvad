@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from experiments import context_dedup, grounding, plots, svg, topology, transport
+from experiments import context_dedup, disagreement, grounding, plots, svg, topology, transport
 
 SEED = 20260904
 PROSE_ABOVE = "# Results\n\nHand-written, above the block.\n\n"
@@ -22,10 +22,12 @@ PROSE_BELOW = "\n\n## Expected, got, surprised\n\nHand-written, below it.\n"
 def results(tmp_path_factory: pytest.TempPathFactory) -> Path:
     out = tmp_path_factory.mktemp("results")
     shared = ["--seed", str(SEED), "--results-dir", str(out)]
-    assert transport.main([*shared, "--conditions", "inproc", "--repeat", "7"]) == 0
-    assert topology.main(["--results-dir", str(out), "--repeat", "7"]) == 0
+    # One pass over the 30-task set already clears the 20-task floor.
+    assert transport.main([*shared, "--conditions", "inproc", "--repeat", "1"]) == 0
+    assert topology.main(["--results-dir", str(out), "--repeat", "1"]) == 0
     assert grounding.main([*shared, "--min-tasks", "20"]) == 0
     assert context_dedup.main([*shared, "--min-tasks", "20"]) == 0
+    assert disagreement.main(shared) == 0  # MOCK_LLM=1: canned replies
     return out
 
 
@@ -121,6 +123,38 @@ def test_a_sweep_over_n_names_the_range_of_nodes(results: Path, docs: Path) -> N
     text = (docs / "RESULTS.md").read_text(encoding="utf-8")
     assert "`results/topology_summary.csv`" in text
     assert "· 2–4 nodes ·" in text
+
+
+def test_a_mock_disagreement_run_says_so_in_its_title(results: Path, docs: Path) -> None:
+    plots.render(results, docs)
+    rows = summary(results, "disagreement")
+    assert {r["mock"] for r in rows} == {"1"}
+    root = ET.parse(docs / "figures" / "disagreement.svg").getroot()
+    assert "MOCK" in root.find("{http://www.w3.org/2000/svg}title").text
+    text = (docs / "RESULTS.md").read_text(encoding="utf-8")
+    for r in rows:
+        assert (f"| {r['condition']} | {r['executor']} → {r['reviewer']} | {r['n_tasks']} | "
+                f"{r['n_errors']} | {r['n_bad']} |") in text
+    assert "| yes |" in text
+
+
+def _disagreement_figure() -> plots.Figure:
+    return next(f for f in plots.FIGURES if f.name == "disagreement")
+
+
+def test_a_real_disagreement_run_is_not_called_a_mock(results: Path, tmp_path: Path) -> None:
+    rows = [{**r, "mock": "0"} for r in summary(results, "disagreement")]
+    out, table = _disagreement_figure().draw(rows, "caption")
+    assert "MOCK" not in out
+    assert all(row[-1] == "no" for row in table[1])
+
+
+def test_an_empty_rate_is_no_bar_and_a_dash(results: Path) -> None:
+    rows = [{**r, "false_reject_rate": "", "false_accept_rate": ""}
+            for r in summary(results, "disagreement")]
+    out, table = _disagreement_figure().draw(rows, "caption")
+    assert out.count('<path class="s1 bar"') == 0 and out.count('<path class="s2 bar"') == 2
+    assert all(row[6] == "--" and row[7] == "--" for row in table[1])
 
 
 def test_a_block_without_markers_is_refused(results: Path, tmp_path: Path) -> None:
